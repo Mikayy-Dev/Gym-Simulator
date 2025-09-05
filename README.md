@@ -1,4 +1,4 @@
-# Gym-Simulator v0.1
+# Gym-Simulator v0.2
 
 ## Movement/Controls
 WASD to move. You are a gym employee tasked with keeping the gym tidy during open hours. 
