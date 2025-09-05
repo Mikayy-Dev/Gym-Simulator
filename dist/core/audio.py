@@ -57,14 +57,14 @@ class AudioManager:
         try:
             pygame.mixer.music.pause()
         except Exception as e:
-            print(f"Could not pause background music: {e}")
+            pass
     
     def unpause_background_music(self):
         """Unpause background music"""
         try:
             pygame.mixer.music.unpause()
         except Exception as e:
-            print(f"Could not unpause background music: {e}")
+            pass
     
     def set_music_volume(self, volume):
         """Set music volume (0.0 to 1.0)"""
@@ -87,31 +87,20 @@ class AudioManager:
     def load_sound_effect(self, name, file_path):
         """Load a sound effect"""
         try:
-            print(f"DEBUG: Loading sound effect '{name}' from '{file_path}'")
             sound = pygame.mixer.Sound(file_path)
             self.sound_effects[name] = sound
-            print(f"DEBUG: Successfully loaded sound effect '{name}'")
         except Exception as e:
-            print(f"Could not load sound effect {name}: {e}")
+            pass
     
     def play_sound_effect(self, name):
         """Play a sound effect"""
-        print(f"DEBUG: Attempting to play sound effect '{name}'")
-        print(f"DEBUG: Muted: {self.is_muted}, Sound exists: {name in self.sound_effects}")
-        print(f"DEBUG: Available sound effects: {list(self.sound_effects.keys())}")
         if not self.is_muted and name in self.sound_effects:
             try:
                 sound = self.sound_effects[name]
                 sound.set_volume(self.sfx_volume)
                 sound.play()
-                print(f"DEBUG: Successfully playing sound effect '{name}'")
             except Exception as e:
-                print(f"Could not play sound effect {name}: {e}")
-        else:
-            if self.is_muted:
-                print(f"DEBUG: Sound effect '{name}' not played - audio is muted")
-            elif name not in self.sound_effects:
-                print(f"DEBUG: Sound effect '{name}' not found in loaded effects")
+                pass
     
     def stop_sound_effect(self, name):
         """Stop a specific sound effect"""
@@ -120,14 +109,14 @@ class AudioManager:
                 sound = self.sound_effects[name]
                 sound.stop()
             except Exception as e:
-                print(f"Could not stop sound effect {name}: {e}")
+                pass
     
     def stop_all_sound_effects(self):
         """Stop all currently playing sound effects"""
         try:
             pygame.mixer.stop()
         except Exception as e:
-            print(f"Could not stop sound effects: {e}")
+            pass
     
     def cleanup(self):
         """Clean up audio resources"""

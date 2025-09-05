@@ -43,10 +43,22 @@ class GymObject:
         
         # Custom hitbox support
         self.custom_hitbox = None
+        
+        # Interaction hitbox support (separate from collision)
+        self.interaction_hitbox = None
     
     def set_custom_hitbox(self, width, height, offset_x=0, offset_y=0):
         """Set custom hitbox for the object"""
         self.custom_hitbox = {
+            "width": width,
+            "height": height,
+            "offset_x": offset_x,
+            "offset_y": offset_y
+        }
+    
+    def set_interaction_hitbox(self, width, height, offset_x=0, offset_y=0):
+        """Set interaction hitbox for player clicks (separate from collision)"""
+        self.interaction_hitbox = {
             "width": width,
             "height": height,
             "offset_x": offset_x,
@@ -63,6 +75,23 @@ class GymObject:
                 self.custom_hitbox["height"]
             )
         # Position hitbox exactly like the sprite is drawn (centered on object position)
+        return pygame.Rect(
+            self.x - (self.sprite_width // 2),
+            self.y - (self.sprite_height // 2),
+            self.sprite_width,
+            self.sprite_height
+        )
+    
+    def get_interaction_rect(self):
+        """Get the interaction rectangle for player clicks"""
+        if self.interaction_hitbox:
+            return pygame.Rect(
+                self.x - (self.interaction_hitbox["width"] // 2) + self.interaction_hitbox["offset_x"],
+                self.y - (self.interaction_hitbox["height"] // 2) + self.interaction_hitbox["offset_y"],
+                self.interaction_hitbox["width"],
+                self.interaction_hitbox["height"]
+            )
+        # Default to full sprite dimensions for interaction
         return pygame.Rect(
             self.x - (self.sprite_width // 2),
             self.y - (self.sprite_height // 2),
@@ -129,7 +158,6 @@ class GymObject:
         if self.occupied:
             self.interaction_timer += delta_time
             if self.interaction_timer >= self.interaction_duration:
-                print(f"DEBUG: Base object interaction timer expired, calling end_interaction()")
                 self.end_interaction()
                 # Transition to dirty state after use (100% chance for testing)
                 # But only for objects that actually need cleaning (benches)
@@ -155,12 +183,13 @@ class GymObject:
     def draw(self, screen, camera):
         """Draw the object on screen"""
         try:
-            screen_x, screen_y = camera.apply_pos(self.x, self.y)
-            
             # Get cached sprite (much faster than recreating every frame)
             sprite = self.get_cached_sprite(camera)
             
-            # Draw on screen
+            # Calculate screen position using the actual sprite dimensions
+            screen_x, screen_y = camera.apply_pos(self.x, self.y)
+            
+            # Center the sprite properly using its actual scaled dimensions
             draw_x = screen_x - (sprite.get_width() // 2)
             draw_y = screen_y - (sprite.get_height() // 2)
             screen.blit(sprite, (draw_x, draw_y))
@@ -214,7 +243,7 @@ class GymObject:
             self._cached_scale != self.scale or 
             self._cached_zoom != camera.zoom):
             
-            # Extract first frame from spritesheet
+            # Extract the correct frame from spritesheet using the defined sprite dimensions
             frame_surface = pygame.Surface((self.sprite_width, self.sprite_height), pygame.SRCALPHA)
             frame_surface.blit(self.spritesheet, (0, 0), (0, 0, self.sprite_width, self.sprite_height))
             

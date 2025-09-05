@@ -38,6 +38,9 @@ class Treadmill(GymObject):
         # Set custom hitbox for treadmill (bottom half collideable)
         self.set_custom_hitbox(48, 24, 0, 10)  # 48x24 hitbox, offset 32 pixels down
         
+        # Set interaction hitbox for player clicks (full sprite dimensions for easier clicking)
+        self.set_interaction_hitbox(self.sprite_width, self.sprite_height, offset_x=0, offset_y=0)
+        
         # Depth sorting properties - use actual collision area bottom
         collision_rect = self.get_collision_rect()
         self.depth_y = collision_rect.bottom  # Bottom of actual collision area
@@ -58,13 +61,20 @@ class Treadmill(GymObject):
     
     def end_interaction(self):
         """Override to handle treadmill-specific state transitions"""
-        # Check if we should enter "on but not occupied" state (40% chance)
-        import random
-        if random.random() < 0.4:  # 40% chance
-            self.on_but_not_occupied = True
-            self.animation_frame = 7  # Start at frame 7
+        # Check if the occupying NPC is departing - if so, stop animation immediately
+        if (self.occupying_npc and hasattr(self.occupying_npc, 'departure_pending') and 
+            self.occupying_npc.departure_pending):
+            # NPC is departing, stop animation and reset to idle
+            self.animation_frame = 0
+            self.on_but_not_occupied = False
         else:
-            self.animation_frame = 0  # Reset to idle
+            # Normal completion - check if we should enter "on but not occupied" state (40% chance)
+            import random
+            if random.random() < 0.4:  # 40% chance
+                self.on_but_not_occupied = True
+                self.animation_frame = 7  # Start at frame 7
+            else:
+                self.animation_frame = 0  # Reset to idle
         
         # Clean up treadmill state without calling parent (to avoid dirty state)
         if self.occupying_npc and hasattr(self.occupying_npc, '_complete_gym_interaction'):
@@ -79,6 +89,12 @@ class Treadmill(GymObject):
         """Update treadmill logic including workout animation and effects"""
         # Handle interaction timing without calling parent (to avoid dirty state)
         if self.occupied:
+            # Check if the occupying NPC is departing - if so, end interaction immediately
+            if (self.occupying_npc and hasattr(self.occupying_npc, 'departure_pending') and 
+                self.occupying_npc.departure_pending):
+                self.end_interaction()
+                return
+            
             self.interaction_timer += delta_time
             if self.interaction_timer >= self.interaction_duration:
                 self.end_interaction()

@@ -41,7 +41,6 @@ class StarUI:
             
             
         except pygame.error as e:
-            print(f"ERROR: Could not load star spritesheet: {e}")
             self.star_spritesheet = None
         
         # Calculate spacing between stars (vertical stacking)
@@ -87,15 +86,12 @@ class StarUI:
             if (new_star_progress >= 5 and old_star_progress < 5 and 
                 not self.star_full_states[star_index]):
                 self.star_full_states[star_index] = True
-                print(f"DEBUG: Star {star_index} reached full!")
                 
                 # Check if all stars are now full
                 if all(self.star_full_states) and not self.all_stars_played:
-                    print(f"DEBUG: ALL STARS FULL! Playing Woohoo sound!")
                     self._play_all_stars_sound()
                     self.all_stars_played = True
                 else:
-                    print(f"DEBUG: Playing individual star sound.")
                     # Play individual star sound
                     self._play_star_sound_immediately()
     
@@ -114,10 +110,8 @@ class StarUI:
             if self.star_sound_cached:
                 # Play at 20% of the normal SFX volume
                 star_volume = self.audio_manager.sfx_volume * 0.3
-                print(f"DEBUG: Base SFX volume: {self.audio_manager.sfx_volume:.2f}, Star volume: {star_volume:.2f}")
                 self.star_sound_cached.set_volume(star_volume)
                 self.star_sound_cached.play()
-                print(f"DEBUG: Star sound played immediately from cache at {star_volume:.2f} volume")
             else:
                 # Fallback to regular method with lower volume
                 if "star_full" in self.audio_manager.sound_effects:
@@ -125,10 +119,8 @@ class StarUI:
                     star_volume = self.audio_manager.sfx_volume * 0.3
                     sound.set_volume(star_volume)
                     sound.play()
-                    print(f"DEBUG: Star sound played via fallback at {star_volume:.2f} volume")
         except Exception as e:
-            print(f"DEBUG: Error playing star sound: {e}")
-    
+            pass
     def _play_all_stars_sound(self):
         """Play the special sound when all stars are full"""
         try:
@@ -144,13 +136,11 @@ class StarUI:
             if self.all_stars_sound_cached:
                 self.all_stars_sound_cached.set_volume(self.audio_manager.sfx_volume)
                 self.all_stars_sound_cached.play()
-                print(f"DEBUG: Woohoo sound played at {self.audio_manager.sfx_volume:.2f} volume")
             else:
                 # Fallback to regular method
                 self.audio_manager.play_sound_effect("all_stars_full")
         except Exception as e:
-            print(f"DEBUG: Error playing all stars sound: {e}")
-    
+            pass
     def get_star_frame(self, star_index):
         """Get the frame (0-5) for a specific star based on total progress"""
         # Calculate which frame this star should show
@@ -187,7 +177,6 @@ class StarUI:
         if not all(self.star_full_states):
             self.all_stars_played = False
         
-        print(f"DEBUG: Set progress to {self.total_progress}/{max_progress}")
     
     def _update_star_full_states(self):
         """Update star full states based on current progress"""

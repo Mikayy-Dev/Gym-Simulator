@@ -55,7 +55,15 @@ class GymPathfinder:
     def screen_to_grid(self, screen_x: int, screen_y: int) -> Tuple[int, int]:
         """Convert screen coordinates to grid coordinates, centered on tiles"""
         # Convert to grid coordinates where each grid cell represents a tile center
-        return int(screen_x // self.cell_size), int(screen_y // self.cell_size)
+        # Handle negative coordinates by clamping to valid grid bounds
+        grid_x = int(screen_x // self.cell_size)
+        grid_y = int(screen_y // self.cell_size)
+        
+        # Clamp to valid grid bounds
+        grid_x = max(0, min(self.width - 1, grid_x))
+        grid_y = max(0, min(self.height - 1, grid_y))
+        
+        return grid_x, grid_y
     
     def grid_to_screen(self, grid_x: int, grid_y: int) -> Tuple[int, int]:
         """Convert grid coordinates to screen coordinates, centered on tiles"""

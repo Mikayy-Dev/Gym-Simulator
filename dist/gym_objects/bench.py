@@ -53,11 +53,14 @@ class Bench(GymObject):
         self.cleaning_speed = 0.3  # Time between cleaning frames (seconds)
         self.cleaning_frames = [7, 8, 9]  # Cleaning animation frames
         
-        # Set custom hitbox based on bench type
+        # Set custom hitbox based on bench type (for collision)
         if bench_type == "small":
-            self.set_custom_hitbox(22, 22, -1, 0)  # 32x22 hitbox, offset 4,6
+            self.set_custom_hitbox(22, 22, offset_x=-1, offset_y=0)  # 32x22 hitbox, offset 4,6
         else:
-            self.set_custom_hitbox(32, 23, 0, 0)  # 48x23 hitbox, no offset
+            self.set_custom_hitbox(32, 23, offset_x=0, offset_y=0)  # 48x23 hitbox, no offset
+        
+        # Set interaction hitbox for player clicks (full sprite dimensions for easier clicking)
+        self.set_interaction_hitbox(self.sprite_width, self.sprite_height, offset_x=0, offset_y=0)
         
         # Set depth sorting Y position (use actual collision area bottom)
         collision_rect = self.get_collision_rect()
@@ -99,6 +102,13 @@ class Bench(GymObject):
     
     def update(self, delta_time):
         """Update bench logic including workout effects"""
+        # Check if the occupying NPC is departing - if so, end interaction immediately
+        if (self.occupied and self.occupying_npc and 
+            hasattr(self.occupying_npc, 'departure_pending') and 
+            self.occupying_npc.departure_pending):
+            self.end_interaction()
+            return
+        
         # Call base class update to handle interaction timing (5-second timeout)
         super().update(delta_time)
         

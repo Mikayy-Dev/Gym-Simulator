@@ -14,6 +14,15 @@ class CollisionSystem:
         if not self.tilemap:
             return False
         
+        # Allow free movement when off-screen (negative x coordinates)
+        if x < 0:
+            return False
+        
+        # Allow free movement when entering the gym (x between 0 and 200)
+        # This gives NPCs a chance to enter without hitting walls
+        if 0 <= x <= 200:
+            return False
+        
         # Check collision points around entity
         check_points = [
             (x + 8, y + 8),
@@ -40,17 +49,33 @@ class CollisionSystem:
         
         return False
     
-    def can_move_to(self, new_x, new_y, hitboxes):
+    def can_move_to(self, new_x, new_y, hitboxes, entity_type="player"):
+        # Allow free movement when off-screen (negative x coordinates) - only for NPCs
+        if new_x < 0 and entity_type == "npc":
+            return True
+        
+        # Allow free movement when entering the gym (x between 0 and 200) - only for NPCs
+        if 0 <= new_x <= 200 and entity_type == "npc":
+            return True
+            
         # Check if entity can move to new position
-        if self._check_wall_collision_hitbox(new_x, new_y, hitboxes):
+        if self._check_wall_collision_hitbox(new_x, new_y, hitboxes, entity_type):
             return False
         
-        if self.gym_manager and self._check_gym_object_collision(new_x, new_y, hitboxes):
+        if self.gym_manager and self._check_gym_object_collision(new_x, new_y, hitboxes, entity_type):
             return False
         
         return True
     
-    def _check_wall_collision_hitbox(self, x, y, hitboxes):
+    def _check_wall_collision_hitbox(self, x, y, hitboxes, entity_type="player"):
+        # Allow free movement when off-screen (negative x coordinates) - only for NPCs
+        if x < 0 and entity_type == "npc":
+            return False
+        
+        # Allow free movement when entering the gym (x between 0 and 200) - only for NPCs
+        if 0 <= x <= 200 and entity_type == "npc":
+            return False
+            
         # Check wall collision using tile-based logic
         check_points = [
             (x + 8, y + 8),
@@ -72,9 +97,17 @@ class CollisionSystem:
         
         return False
     
-    def _check_gym_object_collision(self, x, y, hitboxes):
+    def _check_gym_object_collision(self, x, y, hitboxes, entity_type="player"):
         """Check collision with gym objects using new manager"""
         if not self.gym_manager:
+            return False
+        
+        # Allow free movement when off-screen (negative x coordinates) - only for NPCs
+        if x < 0 and entity_type == "npc":
+            return False
+        
+        # Allow free movement when entering the gym (x between 0 and 200) - only for NPCs
+        if 0 <= x <= 200 and entity_type == "npc":
             return False
         
         # Convert hitbox data to pygame.Rect objects

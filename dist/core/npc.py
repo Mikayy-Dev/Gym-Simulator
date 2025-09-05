@@ -44,6 +44,67 @@ class NPC(Entity):
         self.workout_frames = 8  # 8 frames for dumbbell workout
         self.is_working_out = False
         self.workout_type = None  # "dumbbell", "bench", etc.
+        
+        # Check-in flow
+        self.checked_in = False
+        self.needs_check_in = True
+        self.queue_position = 0  # Position in the front desk queue
+        self.queue_position_calculated = False  # Track if queue position has been set
+        self.using_squat_rack = False  # Flag to prevent borrowing dumbbells during squat rack interactions
+        
+        # Departure system
+        self.arrival_time = 0  # When the NPC arrived (set when spawned)
+        self.departure_duration = 60  # 1 minute in seconds (60 seconds) for testing
+        self.is_departing = False  # Flag to indicate NPC is leaving
+        self.departure_target = None  # Target position for departure (exit)
+        self.departure_start_time = 0  # When departure started (for timeout)
+        
+        # Dialogue system
+        self.dialogue_id = None  # ID of dialogue this NPC can trigger
+        self.can_talk = True  # Whether this NPC can be talked to
+        self.talk_cooldown = 0  # Cooldown between conversations
+        self.talk_cooldown_duration = 10  # 10 seconds between conversations
+        self.interaction_distance = 16  # 1 tile radius (16 pixels) for dialogue interaction
+        
+        # Interruption system
+        self.extroverted = False  # Whether this NPC is extroverted and will interrupt the player
+        self.can_interrupt = True  # Whether this NPC can interrupt the player
+        self.interruption_timer = 10  # Start with 10 seconds delay before first interruption
+        self.interruption_interval = 30  # 30 seconds between interruption attempts
+        self.interruption_distance = 64  # 4 tile radius (64 pixels) for interruptions
+        self.interruption_chance = 0.1  # 10% chance to interrupt when conditions are met
+        self.dialogue_cooldown = 0  # Cooldown after dialogue ends
+        self.dialogue_cooldown_duration = 45  # 45 seconds cooldown between dialogues
+        
+        # Chasing system
+        self.is_chasing_player = False  # Whether this NPC is chasing the player
+        self.chase_target = None  # Reference to the player being chased
+        self.chase_distance = 200  # Distance at which NPC starts chasing player
+        self.locked_in_dialogue = False  # Whether this NPC is locked in dialogue
+        
+        # Talking indicator
+        self.is_talking = False  # Whether this NPC is currently talking
+    
+    def _find_queue_position(self, front_desk):
+        """Find the next available position in the front desk queue"""
+        # Get all NPCs that are currently heading to or at the front desk
+        if not hasattr(self, 'all_npcs'):
+            return 0
+        
+        # Count how many NPCs are actually in the queue area (not checked in)
+        queue_count = 0
+        for npc in self.all_npcs:
+            if npc != self and not npc.checked_in:
+                # Check if NPC is in the front desk queue area
+                if (npc.x >= 5 * 16 and npc.x <= 12 * 16 and 
+                    npc.y >= 10 * 16 and npc.y <= 12 * 16):
+                    queue_count += 1
+                # Check if NPC is off-screen but will be heading to front desk
+                elif (npc.x < 0 and hasattr(npc, 'queue_position_calculated') and 
+                      npc.queue_position_calculated and npc.npc_id < self.npc_id):
+                    queue_count += 1
+        
+        return queue_count
     
     def is_gym_object_type_allowed(self, tile_id):
         """Check if the NPC can target this gym object type based on last usage"""
@@ -55,7 +116,6 @@ class NPC(Entity):
             0: "bench",      # Regular bench
             1: "treadmill",  # Treadmill
             2: "dumbbell_rack", # Dumbbell rack
-            3: "bench",      # Small bench (same type as regular bench)
             4: "squat_rack"  # Squat rack
         }
         
@@ -84,7 +144,6 @@ class NPC(Entity):
             0: "bench",      # Regular bench
             1: "treadmill",  # Treadmill
             2: "dumbbell_rack", # Dumbbell rack
-            3: "bench",      # Small bench (same type as regular bench)
             4: "squat_rack"  # Squat rack
         }
         
@@ -112,20 +171,149 @@ class NPC(Entity):
         self.collision_system = CollisionSystem(tilemap, gym_manager)
         self.pathfinder = GymPathfinder(tilemap, gym_manager)
     
-    def update(self, delta_time):
+    def update(self, delta_time, dialogue_active=False, talking_npc=None):
         """Update NPC logic including pathfinding and AI behavior"""
-        #print(f"NPC update called - AI state: {self.ai_state}, hidden: {self.hidden}")
-        # Call parent update method for animation
+        # Freeze this NPC if it's locked in dialogue
+        if self.locked_in_dialogue:
+            return
+        
+        # Call parent update method for animation (only if not frozen)
         super().update(delta_time)
+        
+        # Check for departure
+        self._update_departure(delta_time)
+        
+        # Update interaction timer to unhide NPCs
+        if self.hidden:
+            # Check if NPC is departing while hidden - if so, end interaction immediately
+            if hasattr(self, 'departure_pending') and self.departure_pending:
+                print(f"DEBUG: NPC {self.npc_id} is departing while hidden, ending gym interaction immediately")
+                # End any current gym interaction
+                if hasattr(self, 'target_object_coords') and self.tilemap:
+                    obj_x, obj_y = self.target_object_coords
+                    if (obj_y < len(self.tilemap.layer2_tiles) and 
+                        obj_x < len(self.tilemap.layer2_tiles[0])):
+                        tile_id = self.tilemap.layer2_tiles[obj_y][obj_x]
+                        if tile_id in [0, 1, 2, 4]:  # Gym equipment
+                            # Find and end the gym object interaction
+                            if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
+                                self.collision_system.gym_manager):
+                                obj = self.collision_system.gym_manager.get_object_at_tile(obj_x, obj_y)
+                                if obj and hasattr(obj, 'end_interaction'):
+                                    obj.end_interaction()
+                # Unhide and start departure
+                self.hidden = False
+                self.ai_state = "idle"
+                return
+            
+            if self.interaction_timer > 0:
+                self.interaction_timer -= delta_time
+                if self.interaction_timer <= 0:
+                    self.hidden = False
+                    self.ai_state = "idle"
+                    print(f"DEBUG: NPC {self.npc_id} unhidden after interaction timer")
+            else:
+                # Safety mechanism - unhide NPCs that have been hidden too long
+                self.hidden = False
+                self.ai_state = "idle"
+                print(f"DEBUG: NPC {self.npc_id} unhidden by safety mechanism")
+        
+        # Update chasing behavior
+        if self.is_chasing_player:
+            dialogue_ready = self.update_chasing(delta_time)
+            if dialogue_ready:
+                # Signal that dialogue should start - this will be handled by the game loop
+                pass
+        
+        # Update interruption behavior
+        self._update_interruption_behavior(delta_time)
+        
+        # Debug: Show departure status
+        if self.is_departing and hasattr(self, 'departure_target') and self.departure_target:
+            exit_x, exit_y = self.departure_target
+            distance = math.sqrt((self.x - exit_x)**2 + (self.y - exit_y)**2)
+            movement_type = "pathfinding" if self.current_path else "direct"
+            if hasattr(self, '_last_debug_distance') and abs(distance - self._last_debug_distance) > 50:
+                print(f"DEBUG: NPC {self.npc_id} departing ({movement_type}) - distance to exit: {distance:.1f}")
+                self._last_debug_distance = distance
+            elif not hasattr(self, '_last_debug_distance'):
+                print(f"DEBUG: NPC {self.npc_id} departing ({movement_type}) - distance to exit: {distance:.1f}")
+                self._last_debug_distance = distance
+        
         self._update_pathfinding(delta_time)
-        self._update_ai_behavior(delta_time)
-        self._update_cleaning_behavior(delta_time)
-        self._update_pending_cleaning_check()
-        self._update_workout_animation(delta_time)
+        
+        # Skip all AI behaviors if NPC is departing
+        if not self.is_departing:
+            self._update_ai_behavior(delta_time)
+            self._update_cleaning_behavior(delta_time)
+            self._update_pending_cleaning_check()
+            self._update_workout_animation(delta_time)
     
     def _update_pathfinding(self, delta_time):
         """Update pathfinding movement"""
+        # Handle direct movement for off-screen NPCs
+        if hasattr(self, 'direct_target') and self.direct_target:
+            target_x, target_y = self.direct_target
+            dx = target_x - self.x
+            dy = target_y - self.y
+            
+            # Check if we've reached the target
+            if abs(dx) < 3 and abs(dy) < 3:
+                # Reached target, clear direct movement
+                delattr(self, 'direct_target')
+                self.moving = False
+                
+                # Check if this was a front desk check-in destination
+                if hasattr(self, 'target_front_desk'):
+                    # Reached front desk position, start check-in interaction
+                    self.ai_state = "interacting"
+                    # Store the front desk coordinates for interaction
+                    self.target_object_coords = (int(self.target_front_desk.x // 16), int(self.target_front_desk.y // 16))
+                else:
+                    self.ai_state = "idle"
+                return
+            
+            # Move towards target
+            if abs(dx) > 0 or abs(dy) > 0:
+                self.moving = True
+                distance = math.sqrt(dx * dx + dy * dy)
+                if distance > 0:
+                    dx = (dx / distance) * self.speed
+                    dy = (dy / distance) * self.speed
+                    
+                    # Update direction for animation
+                    if abs(dx) > abs(dy):
+                        self.direction = "right" if dx > 0 else "left"
+                    else:
+                        self.direction = "down" if dy > 0 else "up"
+                    
+                    # Move
+                    new_x = self.x + dx
+                    new_y = self.y + dy
+                    
+                    # Simple collision check - only check if we're inside the gym
+                    if new_x >= 0:  # Only check collision when inside gym
+                        if not self.check_collision(new_x, new_y):
+                            self.x = new_x
+                            self.y = new_y
+                            self.rect.x = new_x - (self.sprite_width // 2)
+                            self.rect.y = new_y - (self.sprite_height // 2)
+                    else:
+                        # Off-screen, move freely
+                        self.x = new_x
+                        self.y = new_y
+                        self.rect.x = new_x - (self.sprite_width // 2)
+                        self.rect.y = new_y - (self.sprite_height // 2)
+            return
+        
         if not self.current_path or self.path_index >= len(self.current_path):
+            # Check if this is a departing NPC that needs to switch to direct movement
+            if self.is_departing and hasattr(self, 'departure_direct_target'):
+                print(f"DEBUG: NPC {self.npc_id} pathfinding complete, switching to direct movement")
+                self.direct_target = self.departure_direct_target
+                delattr(self, 'departure_direct_target')
+                return
+            
             # Don't change AI state if we're currently interacting
             if self.ai_state != "interacting":
                 self.ai_state = "idle"
@@ -142,17 +330,37 @@ class NPC(Entity):
         dy = target_y - collision_y
         
         # Check if we've reached the waypoint using collision pivot point
-        if abs(dx) < 3 and abs(dy) < 3:  # Within 3 pixels (more precise waypoint detection)
+        if abs(dx) < 5 and abs(dy) < 5:  # Within 5 pixels (more lenient waypoint detection)
             self.path_index += 1
             if self.path_index >= len(self.current_path):
                 # Reached final destination
                 self.moving = False
                 
+                # Check if this is a departing NPC first
+                if self.is_departing:
+                    # NPC is departing and finished pathfinding, switch to direct movement to exit
+                    if hasattr(self, 'departure_direct_target'):
+                        print(f"DEBUG: NPC {self.npc_id} finished pathfinding, switching to direct movement to exit")
+                        self.direct_target = self.departure_direct_target
+                        delattr(self, 'departure_direct_target')
+                        return
+                    else:
+                        # No direct target set, NPC should be ready for removal
+                        print(f"DEBUG: NPC {self.npc_id} finished pathfinding during departure but no direct target set")
+                        return
+                
                 # Check if this is a cleaning destination (trashcan or bench return) FIRST
                 if hasattr(self, 'cleaning_phase'):
                     # This is a cleaning destination, set to idle so cleaning behavior can handle it
-                    
                     self.ai_state = "idle"
+                    return
+                
+                # Check if this is a front desk check-in destination
+                if hasattr(self, 'target_front_desk'):
+                    # Reached front desk position, start check-in interaction
+                    self.ai_state = "interacting"
+                    # Store the front desk coordinates for interaction
+                    self.target_object_coords = (int(self.target_front_desk.x // 16), int(self.target_front_desk.y // 16))
                     return
                 
                 # Not a cleaning destination, process as regular gym object
@@ -162,21 +370,20 @@ class NPC(Entity):
                 if hasattr(self, 'target_object_coords'):
                     obj_x, obj_y = self.target_object_coords
                     
-                    # Check if this is actually a bench object
+                    # Check if this is actually a gym object
                     if (obj_y < len(self.tilemap.layer2_tiles) and 
                         obj_x < len(self.tilemap.layer2_tiles[0])):
                         tile_id = self.tilemap.layer2_tiles[obj_y][obj_x]
                         
                         # Start interaction sequence for gym objects
-                        if tile_id in [0, 1, 2, 3, 4]:  # Bench (0), Treadmill (1), DumbbellRack (2), Small Bench (3), SquatRack (4)
-                            
+                        if tile_id in [0, 1, 2, 4]:  # Bench (0), Treadmill (1), DumbbellRack (2), SquatRack (4)
                             self._start_gym_object_interaction()
                         else:
-                            
                             self.ai_state = "idle"
                     else:
-                        #print(f"Invalid coordinates for object interaction: ({obj_x}, {obj_y})")
                         self.ai_state = "idle"
+                else:
+                    self.ai_state = "idle"
                 
                 # Don't choose new behavior - stay at the bench
                 return
@@ -221,7 +428,6 @@ class NPC(Entity):
     
     def _update_ai_behavior(self, delta_time):
         """Update AI behavior and decision making"""
-        #print(f"NPC AI behavior update - state: {self.ai_state}")
         
         # Check if this is a cleaning NPC - COMPLETELY bypass regular AI for cleaning
         if hasattr(self, 'cleaning_phase'):
@@ -229,11 +435,51 @@ class NPC(Entity):
             # Don't let any other AI system interfere
             return
         
-        # Only allow automatic behavior if not manually targeted to a bench
-        if self.ai_state == "idle" and not hasattr(self, 'manually_targeted'):
+        # Check-in step has priority before any other behavior
+        if self.ai_state == "idle" and not self.checked_in and self.needs_check_in:
+            if hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and self.collision_system.gym_manager:
+                gym_manager = self.collision_system.gym_manager
+                front_desks = gym_manager.get_gym_objects_by_type("front_desk")
+                if front_desks:
+                    # If NPC is off-screen (negative x), go directly to front desk check-in
+                    if self.x < 0:
+                        # Calculate queue position only once
+                        if not self.queue_position_calculated:
+                            self.queue_position = self._find_queue_position(front_desks[0])
+                            self.queue_position_calculated = True
+                        
+                        checkin_x = (8 - self.queue_position) * 16 + 8  # Queue extends left from tile 8
+                        checkin_y = 11 * 16 + 8  # Tile 11, center of tile
+                        self.move_to_position(checkin_x, checkin_y)
+                        # Store front desk reference for interaction
+                        self.target_front_desk = front_desks[0]
+                        return
+                    else:
+                        # Already inside gym, go to front desk check-in position
+                        # Calculate queue position only once
+                        if not self.queue_position_calculated:
+                            self.queue_position = self._find_queue_position(front_desks[0])
+                            self.queue_position_calculated = True
+                        
+                        checkin_x = (8 - self.queue_position) * 16 + 8  # Queue extends left from tile 8 (front of line on right)
+                        checkin_y = 11 * 16 + 8  # Tile 11, center of tile
+                        self.move_to_position(checkin_x, checkin_y)
+                        # Store front desk reference for interaction
+                        self.target_front_desk = front_desks[0]
+                        return
+        
+        # Only allow automatic behavior if not manually targeted to a bench and after check-in
+        if self.ai_state == "idle" and not hasattr(self, 'manually_targeted') and self.checked_in:
+            
+            # If NPC is checked in but still in queue area, immediately start looking for gym equipment
+            if (self.x >= 5 * 16 and self.x <= 12 * 16 and 
+                self.y >= 10 * 16 and self.y <= 12 * 16):
+                # NPC is checked in but still in queue area, start looking for equipment immediately
+                self._choose_new_behavior()
+                return
+            
             self.behavior_timer += delta_time
             if self.behavior_timer >= self.behavior_interval:
-        
                 self._choose_new_behavior()
                 self.behavior_timer = 0
         
@@ -241,18 +487,15 @@ class NPC(Entity):
             self.behavior_timer += delta_time
     
         elif self.ai_state == "interacting":
-            #print(f"NPC in interacting state, hidden: {self.hidden}")
             
             # Check if we still have target coordinates (if not, something went wrong)
             if not hasattr(self, 'target_object_coords'):
-                #print(f"NPC in interacting state but no target coordinates - resetting to idle")
                 self.ai_state = "idle"
                 return
             
             # Only check for animation completion if NPC is hidden (bench objects only)
             if self.hidden:
                 obj_x, obj_y = self.target_object_coords
-                #print(f"NPC in interacting state, checking bench interaction at ({obj_x}, {obj_y})")
                 
                 # Check if animation is still playing (for bench objects)
                 if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
@@ -288,13 +531,36 @@ class NPC(Entity):
                                 # Interaction completed, the dumbbell rack's end_interaction() was called
                                 # which already handled the drop/return logic, so just complete the NPC interaction
                                 self._complete_non_bench_interaction()
-                    elif tile_id != 0:  # Other non-bench objects (treadmill, squat rack)
-                        #print(f"NPC reached non-bench object (tile_id: {tile_id}) - completing interaction")
+                    elif tile_id == 4:  # Squat rack - wait for full interaction duration
+                        # Check if squat rack interaction is still active
+                        if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
+                            self.collision_system.gym_manager):
+                            obj = self.collision_system.gym_manager.get_object_at_tile(obj_x, obj_y)
+                            if obj and obj.has_state("in_use"):
+                                # Interaction still active, wait for it to complete
+                                return
+                            else:
+                                # Interaction completed, the squat rack's end_interaction() was called
+                                # which already handled the cleanup, so just complete the NPC interaction
+                                self._complete_non_bench_interaction()
+                    elif tile_id != 0:  # Other non-bench objects (treadmill)
                         self._complete_non_bench_interaction()
     
     def _choose_new_behavior(self):
         """Choose a new behavior for the NPC"""
-        #print("=== _choose_new_behavior() CALLED ===")
+        
+        # Force NPC 0 to be a squat rack user for testing
+        if self.npc_id == 0:
+            self.behavior_type = "squat_rack_user"
+            
+        
+        # Clear any previous targeting attributes
+        if hasattr(self, 'target_front_desk'):
+            delattr(self, 'target_front_desk')
+        if hasattr(self, 'target_object_coords'):
+            delattr(self, 'target_object_coords')
+        if hasattr(self, 'target_object'):
+            delattr(self, 'target_object')
         
         # Don't choose new behavior if NPC is cleaning
         if hasattr(self, 'cleaning_phase'):
@@ -311,15 +577,12 @@ class NPC(Entity):
         if hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and self.collision_system.gym_manager:
             gym_manager = self.collision_system.gym_manager
             
-            
             # Get all gym objects from the manager, excluding front desk and trashcan
             for pos, obj in gym_manager.get_collision_objects():
                 # Skip front desk and trashcan (unless NPC is cleaning)
                 obj_type = gym_manager.object_types.get(pos)
                 if obj_type in ["front_desk", "trashcan"]:
                     continue
-                
-        
                 
                 # Get the collision rectangle from the gym object
                 collision_rect = obj.get_collision_rect()
@@ -328,13 +591,12 @@ class NPC(Entity):
                     # The pathfinder will use the real collision rectangle
                     available_objects.append(obj)
         else:
-            
             # Fallback to old method if gym manager not available
             for y, row in enumerate(self.tilemap.layer2_tiles):
                 for x, tile_id in enumerate(row):
-                    # Target specific gym equipment: bench(0), treadmill(1), dumbbell_rack(2), small_bench(3), squat_rack(4)
+                    # Target specific gym equipment: bench(0), treadmill(1), dumbbell_rack(2), squat_rack(4)
                     # Exclude front_desk(5) and trashcan(6)
-                    if tile_id in [0, 1, 2, 3, 4]:
+                    if tile_id in [0, 1, 2, 4]:
                         # Create a simple object representation without hitbox
                         # Target the tile below the object (y+1) so NPC stands in front of equipment
                         target_tile_x = x
@@ -349,18 +611,8 @@ class NPC(Entity):
                         available_objects.append(obj)
         
         if available_objects:
-            # Debug: Show what objects we found
-            
-            for i, obj in enumerate(available_objects):
-                obj_type = type(obj).__name__
-                if hasattr(obj, 'x') and hasattr(obj, 'y'):
-            
-              
-            
             # Smart targeting: Give different equipment types a fair chance
-                    import random
-            
-            
+            import random
             # Categorize objects by type and apply gym object type restrictions
             benches = [obj for obj in available_objects if hasattr(obj, '__class__') and 'Bench' in obj.__class__.__name__]
             treadmills = [obj for obj in available_objects if hasattr(obj, '__class__') and 'Treadmill' in obj.__class__.__name__]
@@ -381,21 +633,52 @@ class NPC(Entity):
             elif self.last_gym_object_type == "squat_rack":
                 squat_racks = []  # Block squat racks if last used was squat rack
             
-            # First, randomly choose which equipment type to target (25% each)
-            available_types = []
-            if treadmills:
-                available_types.append("Treadmill")
-            if benches:
-                available_types.append("Bench")
-            if dumbbell_racks:
-                available_types.append("DumbbellRack")
-            if squat_racks:
-                available_types.append("SquatRack")
+            # Check if any gym objects are available after restrictions
+            total_available = len(benches) + len(treadmills) + len(dumbbell_racks) + len(squat_racks)
             
-            # Randomly choose equipment type (equal probability)
-            chosen_type = random.choice(available_types)
+            if total_available == 0:
+                self.ai_state = "idle"
+                self.current_path = []
+                self.path_index = 0
+                return
+            
+            # First, try to use the NPC's preferred behavior type
+            preferred_type = None
+            if hasattr(self, 'behavior_type'):
+                if self.behavior_type == "dumbbell_user" and dumbbell_racks:
+                    preferred_type = "DumbbellRack"
+                elif self.behavior_type == "bench_user" and benches:
+                    preferred_type = "Bench"
+                elif self.behavior_type == "treadmill_user" and treadmills:
+                    preferred_type = "Treadmill"
+                elif self.behavior_type == "squat_rack_user" and squat_racks:
+                    preferred_type = "SquatRack"
+            
+            # If preferred type is available, use it; otherwise choose randomly
+            if preferred_type:
+                chosen_type = preferred_type
+            else:
+                # Fallback to random selection
+                available_types = []
+                if treadmills:
+                    available_types.append("Treadmill")
+                if benches:
+                    available_types.append("Bench")
+                if dumbbell_racks:
+                    available_types.append("DumbbellRack")
+                if squat_racks:
+                    available_types.append("SquatRack")
+                
+                if available_types:
+                    chosen_type = random.choice(available_types)
+                else:
+                    self.ai_state = "idle"
+                    self.current_path = []
+                    self.path_index = 0
+                    return
             
             # Then randomly choose from that type
+            target = None
             if chosen_type == "Treadmill":
                 target = random.choice(treadmills)
             elif chosen_type == "Bench":
@@ -406,22 +689,35 @@ class NPC(Entity):
                 target = random.choice(squat_racks)
             
             if not target:
+                self.ai_state = "idle"
+                self.current_path = []
+                self.path_index = 0
                 return
             
  
             
             # Store the target and available types for fallback
             self.current_target = target
-            self.available_types = available_types
+            # Get all available types for fallback
+            all_available_types = []
+            if treadmills:
+                all_available_types.append("Treadmill")
+            if benches:
+                all_available_types.append("Bench")
+            if dumbbell_racks:
+                all_available_types.append("DumbbellRack")
+            if squat_racks:
+                all_available_types.append("SquatRack")
+            self.available_types = all_available_types
             self.chosen_type = chosen_type
             self.target_attempts = 0
             
-
             self.move_to_object(target)
         else:
-            # If no gym objects available, move to a random walkable position
-            #print("No gym objects found - NPC wandering randomly")
-            self._wander_randomly()
+            # If no gym objects available, stay idle instead of wandering randomly
+            self.ai_state = "idle"
+            self.current_path = []
+            self.path_index = 0
     
     def _try_alternative_target(self):
         """Try alternative targets when pathfinding fails"""
@@ -611,6 +907,17 @@ class NPC(Entity):
         if not self.pathfinder:
             return
         
+        # Special case: if NPC is off-screen (negative x), move directly without pathfinding
+        if self.x < 0:
+            # Move directly towards the target without pathfinding
+            self.current_path = []
+            self.path_index = 0
+            self.ai_state = "moving"
+            self.moving = True
+            # Store target for direct movement
+            self.direct_target = (target_x, target_y)
+            return
+        
         start_pos = (self.x, self.y)
         goal_pos = (target_x, target_y)
         
@@ -683,13 +990,19 @@ class NPC(Entity):
                             if hasattr(self, 'pathfinder'):
                                 self.pathfinder.mark_cache_dirty()
                         else:
-
                             # Bench is occupied, find another target
                             self.ai_state = "idle"
                             return
+                    else:
+                        self.ai_state = "idle"
+                        return
                     
                     # Hide the NPC - animation will handle the 5-second duration
                     self.hidden = True
+                    self.interaction_timer = 5.0  # 5 seconds
+                else:
+                    self.ai_state = "idle"
+                    return
                     
             elif tile_id == 1:  # Treadmill
                 if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
@@ -709,9 +1022,16 @@ class NPC(Entity):
                             # Treadmill is occupied, find another target
                             self.ai_state = "idle"
                             return
+                    else:
+                        self.ai_state = "idle"
+                        return
                     
                     # Hide the NPC - animation will handle the 8-second duration
                     self.hidden = True
+                    self.interaction_timer = 8.0  # 8 seconds
+                else:
+                    self.ai_state = "idle"
+                    return
                     
             elif tile_id == 2:  # DumbbellRack
                 if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
@@ -735,7 +1055,7 @@ class NPC(Entity):
                             return
                    
             
-                    
+            
             elif tile_id == 4:  # SquatRack
                 if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
                     self.collision_system.gym_manager):
@@ -745,11 +1065,13 @@ class NPC(Entity):
                         # Start proper interaction with this NPC
                         success = obj.start_interaction(self)
                         if success:
+                            # Start squat rack workout animation
+                            self.start_workout_animation("squat_rack")
+                            # Set flag to prevent borrowing dumbbells
+                            self.using_squat_rack = True
                             # Update pathfinding cache for all NPCs
                             if hasattr(self, 'pathfinder'):
                                 self.pathfinder.mark_cache_dirty()
-                            # Hide the NPC - animation will handle the 5-second duration
-                            self.hidden = True
                         else:
                             # Squat rack is occupied, find another target
                             self.ai_state = "idle"
@@ -762,12 +1084,23 @@ class NPC(Entity):
                     # No gym manager available, reset to idle
                     self.ai_state = "idle"
                     return
+            
+            elif tile_id == 5:  # Front desk check-in
+                if (hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and 
+                    self.collision_system.gym_manager):
+                    obj = self.collision_system.gym_manager.get_object_at_tile(obj_x, obj_y)
+                    if obj and hasattr(obj, 'start_interaction'):
+                        success = obj.start_interaction(self)
+                        if success and hasattr(self, 'pathfinder'):
+                            self.pathfinder.mark_cache_dirty()
+                    self.hidden = False
+                else:
+                    self.ai_state = "idle"
+                    return
     def _complete_gym_interaction(self):
         """Complete the gym equipment interaction after the animation completes"""
         
-        
         if not hasattr(self, 'target_object_coords') or not self.tilemap:
-            
             return
         
         obj_x, obj_y = self.target_object_coords
@@ -777,9 +1110,24 @@ class NPC(Entity):
         tile_id = self.tilemap.layer2_tiles[obj_y][obj_x]
 
         
-        # Skip front desk and trashcan interactions
-        if tile_id in [5, 6]:  # Front desk (5), Trashcan (6)
-            
+        # Front desk completion marks check-in
+        if tile_id == 5:
+            self.checked_in = True
+            self.needs_check_in = False
+            self.hidden = False
+            self.ai_state = "idle"
+            self.behavior_timer = 0  # Reset behavior timer to start looking for equipment immediately
+            # Clear manual targeting and target coords
+            if hasattr(self, 'manually_targeted'):
+                delattr(self, 'manually_targeted')
+            if hasattr(self, 'target_object_coords'):
+                delattr(self, 'target_object_coords')
+            if hasattr(self, 'target_front_desk'):
+                delattr(self, 'target_front_desk')
+            return
+        
+        # Skip trashcan interactions
+        if tile_id == 6:
             self.ai_state = "idle"
             return
         
@@ -795,6 +1143,11 @@ class NPC(Entity):
                 self.stop_workout_animation()
         elif tile_id == 4:
             equipment_name = "squat rack"
+            # Stop squat rack workout animation and unhide NPC
+            if self.is_working_out and self.workout_type == "squat_rack":
+                self.stop_workout_animation()
+            # Unhide the NPC after squat rack interaction
+            self.hidden = False
         
         
         
@@ -802,7 +1155,7 @@ class NPC(Entity):
         self._update_last_gym_object_type(tile_id)
         
         # Check if this is a bench that might become dirty and NPC should clean it
-        if tile_id in [0, 3]:  # Regular bench or small bench
+        if tile_id in [0]:  # Regular bench only
             # Delay the cleaning check to next frame to allow bench to become dirty
             self.pending_cleaning_check = True
             self.pending_cleaning_coords = (obj_x, obj_y)
@@ -824,6 +1177,15 @@ class NPC(Entity):
         # Clear the target coordinates so NPC won't target the same equipment again
         if hasattr(self, 'target_object_coords'):
             delattr(self, 'target_object_coords')
+        
+        # Check if this NPC was waiting to depart after workout completion
+        if hasattr(self, 'departure_pending') and self.departure_pending:
+            print(f"DEBUG: NPC {self.npc_id} workout completed, now starting departure")
+            delattr(self, 'departure_pending')
+            # Start departure process
+            exit_x = -80  # Off-screen to the left (same as entry spawn point)
+            exit_y = 10 * 16 + 8  # Row 10, center of tile (same as entry)
+            self.start_departure(exit_x, exit_y)
     
     def _update_workout_animation(self, delta_time):
         """Update workout animation if NPC is working out"""
@@ -834,14 +1196,87 @@ class NPC(Entity):
         if self.workout_animation_timer >= self.workout_animation_speed:
             self.workout_animation_timer = 0
             self.workout_animation_index = (self.workout_animation_index + 1) % self.workout_frames
-           
+    
+    def _update_departure(self, delta_time):
+        """Update departure logic with smart handling for gym equipment"""
+        # Skip if already departing
+        if self.is_departing:
+            return
+        
+        # Check if NPC should depart (only if checked in)
+        if self.checked_in:
+            current_time = pygame.time.get_ticks() / 1000.0
+            if self.should_depart(current_time):
+                print(f"DEBUG: NPC {self.npc_id} is ready to depart after {current_time - self.arrival_time:.1f}s")
+                
+                # Smart departure handling based on current state
+                if self.is_working_out:
+                    print(f"DEBUG: NPC {self.npc_id} is still working out, will depart after workout completes")
+                    # Don't force end workout - let it complete naturally
+                    # Set a flag to indicate this NPC should depart when workout is done
+                    self.departure_pending = True
+                    return
+                elif hasattr(self, 'cleaning_phase'):
+                    print(f"DEBUG: NPC {self.npc_id} is cleaning, will depart after cleaning completes")
+                    # Don't interrupt cleaning - let it complete naturally
+                    # Set a flag to indicate this NPC should depart when cleaning is done
+                    self.departure_pending = True
+                    return
+                elif hasattr(self, 'target_object') and self.target_object:
+                    print(f"DEBUG: NPC {self.npc_id} is heading to gym equipment, canceling target")
+                    self.target_object = None
+                    self.current_path = []
+                    self.path_index = 0
+                    self.ai_state = "idle"
+                elif self.ai_state == "interacting":
+                    print(f"DEBUG: NPC {self.npc_id} is interacting, ending interaction")
+                    if hasattr(self, 'target_object') and self.target_object:
+                        self.target_object.end_interaction()
+                    self.ai_state = "idle"
+                
+                # Start departure process - move to off-screen left (reverse of entry)
+                exit_x = -80  # Off-screen to the left (same as entry spawn point)
+                exit_y = 10 * 16 + 8  # Row 10, center of tile (same as entry)
+                self.start_departure(exit_x, exit_y)
+        
+        # Handle departure delay if set
+        if hasattr(self, 'departure_delay') and self.departure_delay > 0:
+            self.departure_delay -= delta_time
+            if self.departure_delay <= 0:
+                print(f"DEBUG: NPC {self.npc_id} departure delay complete, starting departure")
+                exit_x = -80
+                exit_y = 10 * 16 + 8
+                self.start_departure(exit_x, exit_y)
+                delattr(self, 'departure_delay')
+    
+    def end_workout(self):
+        """End the current workout and clean up workout state"""
+        if self.is_working_out:
+            print(f"DEBUG: NPC {self.npc_id} ending workout")
+            self.is_working_out = False
+            self.workout_type = None
+            self.workout_sprite = None
+            self.workout_animation_index = 0
+            self.workout_animation_timer = 0
+            
+            # Clear any workout-related flags
+            if hasattr(self, 'using_squat_rack'):
+                self.using_squat_rack = False
+            if hasattr(self, 'using_bench'):
+                self.using_bench = False
+            if hasattr(self, 'using_treadmill'):
+                self.using_treadmill = False
+            if hasattr(self, 'using_dumbbells'):
+                self.using_dumbbells = False
     
     def start_workout_animation(self, workout_type):
         """Start workout animation for the NPC"""
+       
         if workout_type == "dumbbell":
             # Load dumbbell workout sprite
+            sprite_file = "Graphics/npc_working_out_dumbbell.png"
             try:
-                self.workout_sprite = pygame.image.load("Graphics/npc_working_out_dumbbell.png").convert_alpha()
+                self.workout_sprite = pygame.image.load(sprite_file).convert_alpha()
                 
             except pygame.error as e:
                 
@@ -851,12 +1286,21 @@ class NPC(Entity):
             self.is_working_out = True
             self.workout_animation_timer = 0
             self.workout_animation_index = 0
-    
+            
+            return True
+        elif workout_type == "squat_rack":
+            # Squat rack doesn't need a special workout sprite - use normal sprite
+            self.workout_type = workout_type
+            self.is_working_out = True
+            self.workout_animation_timer = 0
+            self.workout_animation_index = 0
+            
             return True
         return False
     
     def stop_workout_animation(self):
         """Stop workout animation and return to normal sprite"""
+      
         self.is_working_out = False
         self.workout_type = None
         self.workout_sprite = None
@@ -1097,8 +1541,17 @@ class NPC(Entity):
         if hasattr(self, 'cleaning_duration'):
             delattr(self, 'cleaning_duration')
         
-        # Complete the interaction normally
-        self._finish_gym_interaction_normally()
+        # Check if this NPC was waiting to depart after cleaning completion
+        if hasattr(self, 'departure_pending') and self.departure_pending:
+            print(f"DEBUG: NPC {self.npc_id} cleaning aborted, now starting departure")
+            delattr(self, 'departure_pending')
+            # Start departure process
+            exit_x = -80  # Off-screen to the left (same as entry spawn point)
+            exit_y = 10 * 16 + 8  # Row 10, center of tile (same as entry)
+            self.start_departure(exit_x, exit_y)
+        else:
+            # Complete the interaction normally
+            self._finish_gym_interaction_normally()
     
     def _update_cleaning_behavior(self, delta_time):
         """Update cleaning behavior logic"""
@@ -1276,8 +1729,17 @@ class NPC(Entity):
         if hasattr(self, 'cleaning_phase'):
             delattr(self, 'cleaning_phase')
         
-        # Complete the interaction normally
-        self._finish_gym_interaction_normally()
+        # Check if this NPC was waiting to depart after cleaning completion
+        if hasattr(self, 'departure_pending') and self.departure_pending:
+            print(f"DEBUG: NPC {self.npc_id} cleaning completed, now starting departure")
+            delattr(self, 'departure_pending')
+            # Start departure process
+            exit_x = -80  # Off-screen to the left (same as entry spawn point)
+            exit_y = 10 * 16 + 8  # Row 10, center of tile (same as entry)
+            self.start_departure(exit_x, exit_y)
+        else:
+            # Complete the interaction normally
+            self._finish_gym_interaction_normally()
     
 
     
@@ -1328,16 +1790,49 @@ class NPC(Entity):
         if self.hidden:
             return
         
+        # Check if NPC is behind walls and should be hidden
+        if self._is_behind_wall():
+            return
         
+        # Debug: Show when departing NPCs are being drawn
+        if self.is_departing:
+            print(f"DEBUG: Drawing departing NPC {self.npc_id} at position ({self.x:.1f}, {self.y:.1f})")
+        
+        # Set direction based on queue position for NPCs in the front desk area
+        if (hasattr(self, 'queue_position') and 
+            not self.checked_in and 
+            self.x >= 5 * 16 and self.x <= 12 * 16 and 
+            self.y >= 10 * 16 and self.y <= 12 * 16):
+            
+            # Store original direction
+            original_direction = self.direction
+            
+            # Set direction based on queue position
+            if self.queue_position == 0:
+                self.direction = "down"  # Head of line faces down
+            else:
+                self.direction = "right"  # Others face right
         
         # Check if NPC is working out and should show workout sprite
-        if self.is_working_out and self.workout_sprite:
-            
+        # Only dumbbell workouts use special workout sprites
+        # Squat rack workouts hide the NPC completely
+        # Skip workout sprites for departing NPCs
+        if self.is_working_out and not self.is_departing and self.workout_type == "squat_rack":
+           
+            # Don't draw anything - NPC is hidden inside the squat rack
+            return
+        elif self.is_working_out and not self.is_departing and self.workout_sprite and self.workout_type == "dumbbell":
             self._draw_workout_sprite(screen, camera)
         else:
-           
             # Call parent draw method for basic sprite rendering
             super().draw(screen, camera)
+        
+        # Restore original direction if we changed it
+        if (hasattr(self, 'queue_position') and 
+            not self.checked_in and 
+            self.x >= 5 * 16 and self.x <= 12 * 16 and 
+            self.y >= 10 * 16 and self.y <= 12 * 16):
+            self.direction = original_direction
         
         # Calculate screen position for NPC-specific drawing
         screen_x, screen_y = camera.apply_pos(self.x, self.y)
@@ -1350,7 +1845,6 @@ class NPC(Entity):
             pygame.draw.circle(screen, (0, 255, 0), (int(screen_x), int(screen_y)), selection_radius, 3)
         
         # Debug: Show pivot point coordinates
-        #print(f"Pivot point: ({self.x:.1f}, {self.y:.1f})")
         
         # Debug: Draw path if moving and paths are enabled
         if self.current_path and self.ai_state == "moving" and self.show_paths:
@@ -1469,8 +1963,241 @@ class NPC(Entity):
                     ref_tile_rect = pygame.Rect(ref_tile_left, ref_tile_top, 16, 16)
                     ref_tile_rect_screen = camera.apply_rect(ref_tile_rect)
                     pygame.draw.rect(screen, (100, 100, 100), ref_tile_rect_screen, 1)
+    
+    def should_depart(self, current_time):
+        """Check if NPC should depart based on time spent in gym"""
+        if self.arrival_time == 0:
+            return False
+        return (current_time - self.arrival_time) >= self.departure_duration
+    
+    def start_departure(self, exit_x, exit_y):
+        """Start the departure process - NPC will move to exit using pathfinding"""
+        print(f"DEBUG: NPC {self.npc_id} starting departure to ({exit_x}, {exit_y})")
+        self.is_departing = True
+        self.departure_target = (exit_x, exit_y)
+        self.departure_start_time = pygame.time.get_ticks() / 1000.0
+        
+        # Stop any current workout
+        if self.is_working_out:
+            print(f"DEBUG: NPC {self.npc_id} ending workout before departure")
+            self.end_workout()
+        
+        # Clear any current path and set new target
+        self.current_path = []
+        self.path_index = 0
+        self.target_object = None
+        self.ai_state = "moving"
+        
+        # Use pathfinding to get to the exit, same as when targeting gym objects
+        if self.pathfinder:
+            start_pos = (self.x, self.y)
             
-
+            # Use a valid on-screen exit point for pathfinding (left side of gym)
+            # This ensures pathfinding can work properly
+            pathfind_goal = (32, exit_y)  # Left side of gym, but still on-screen
+            print(f"DEBUG: NPC {self.npc_id} attempting pathfinding from ({start_pos[0]:.1f}, {start_pos[1]:.1f}) to ({pathfind_goal[0]:.1f}, {pathfind_goal[1]:.1f})")
+            
+            # Try to find a path to the on-screen exit point
+            self.current_path = self.pathfinder.find_path(start_pos, pathfind_goal)
+            self.path_index = 0
+            
+            if self.current_path:
+                print(f"DEBUG: NPC {self.npc_id} departure path calculated with {len(self.current_path)} waypoints")
+                self.moving = True
+                # Set up for direct movement to final exit after pathfinding completes
+                self.departure_direct_target = (exit_x, exit_y)
+            else:
+                print(f"DEBUG: NPC {self.npc_id} departure path calculation failed, trying closer exit point")
+                # Try an even closer exit point
+                closer_goal = (48, exit_y)  # Further right but still on-screen
+                self.current_path = self.pathfinder.find_path(start_pos, closer_goal)
+                self.path_index = 0
+                
+                if self.current_path:
+                    print(f"DEBUG: NPC {self.npc_id} closer departure path calculated with {len(self.current_path)} waypoints")
+                    self.moving = True
+                    self.departure_direct_target = (exit_x, exit_y)
+                else:
+                    print(f"DEBUG: NPC {self.npc_id} all departure pathfinding failed, using direct movement as last resort")
+                    # Last resort: direct movement
+                    self.direct_target = (exit_x, exit_y)
+        else:
+            print(f"DEBUG: NPC {self.npc_id} has no pathfinder, using direct movement")
+            self.direct_target = (exit_x, exit_y)
+    
+    def cleanup(self):
+        """Clean up NPC resources before removal"""
+        print(f"DEBUG: Cleaning up NPC {self.npc_id}")
+        
+        # Return any borrowed dumbbells to the rack
+        if hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager'):
+            gym_manager = self.collision_system.gym_manager
+            if gym_manager:
+                # Find all dumbbell racks and return borrowed dumbbells
+                for pos, obj in gym_manager.get_collision_objects():
+                    if hasattr(obj, '__class__') and 'DumbbellRack' in obj.__class__.__name__:
+                        if hasattr(obj, 'borrowed_dumbbells') and self in obj.borrowed_dumbbells:
+                            print(f"DEBUG: Returning borrowed dumbbells for NPC {self.npc_id}")
+                            obj.return_dumbbells(self)
+        
+        # End any current workout
+        if self.is_working_out:
+            self.end_workout()
+        
+        # Clear any interaction state
+        if hasattr(self, 'target_object') and self.target_object:
+            if hasattr(self.target_object, 'end_interaction'):
+                self.target_object.end_interaction()
+    
+    def _is_behind_wall(self):
+        """Check if NPC is behind a wall and should be hidden"""
+        if not hasattr(self, 'tilemap') or not self.tilemap:
+            return False
+        
+        # Convert NPC position to tile coordinates
+        npc_tile_x = int(self.x // 16)
+        npc_tile_y = int(self.y // 16)
+        
+        # Check if NPC is off-screen (should be hidden)
+        if self.x < 0:
+            return True
+        
+        # Check if NPC is behind walls by looking at tiles to the north (up) of the NPC
+        # We check tiles above the NPC to see if there are walls that would obscure the NPC
+        for offset in range(1, 3):  # Check 1-2 tiles above (more conservative)
+            check_tile_y = npc_tile_y - offset
+            if check_tile_y >= 0 and check_tile_y < len(self.tilemap.layer1_tiles):
+                if npc_tile_x >= 0 and npc_tile_x < len(self.tilemap.layer1_tiles[0]):
+                    tile_id = self.tilemap.layer1_tiles[check_tile_y][npc_tile_x]
+                    # If there's a wall tile (not floor tile 46), NPC is behind a wall
+                    if tile_id != 46:
+                        return True
+        
+        return False
+    
+    def _update_interruption_behavior(self, delta_time):
+        """Update NPC interruption behavior - check if NPC should try to interrupt player"""
+        # Skip if not extroverted, already in dialogue, departing, or not checked in
+        if (not self.extroverted or self.is_talking or self.is_departing or not self.checked_in or 
+            not self.can_interrupt or not self.chase_target):
+            return
+        
+        # Update dialogue cooldown
+        if self.dialogue_cooldown > 0:
+            self.dialogue_cooldown -= delta_time
+            if self.dialogue_cooldown <= 0:
+                print(f"DEBUG: NPC {self.npc_id} dialogue cooldown ended")
+            return
+        
+        # Update interruption timer
+        if self.interruption_timer > 0:
+            self.interruption_timer -= delta_time
+            return
+        
+        # Debug: NPC is checking for interruption (only when timer expires)
+        # Removed debug output to reduce spam
+        
+        # Check if we should attempt interruption
+        if self._should_attempt_interruption():
+            print(f"DEBUG: Extroverted NPC {self.npc_id} attempting interruption")
+            self._start_chasing_player()
+    
+    def _should_attempt_interruption(self):
+        """Check if NPC should attempt to interrupt the player"""
+        if not self.chase_target:
+            return False
+        
+        # Calculate distance to player
+        distance = math.sqrt((self.x - self.chase_target.x)**2 + (self.y - self.chase_target.y)**2)
+        
+        # Check if player is within interruption distance
+        if distance > self.interruption_distance:
+            return False
+        
+        # Check if player is not already in dialogue
+        if hasattr(self.chase_target, 'locked_in_dialogue') and self.chase_target.locked_in_dialogue:
+            return False
+        
+        # Random chance to interrupt
+        import random
+        should_interrupt = random.random() < self.interruption_chance
+        if should_interrupt:
+            print(f"DEBUG: NPC {self.npc_id} attempting interruption (distance: {distance:.1f})")
+        return should_interrupt
+    
+    def _start_chasing_player(self):
+        """Start chasing the player for dialogue interruption"""
+        if not self.chase_target:
+            return
+        
+        print(f"DEBUG: NPC {self.npc_id} starting to chase player for dialogue")
+        self.is_chasing_player = True
+        self.ai_state = "moving"
+        
+        # Move towards player
+        self.move_to_position(self.chase_target.x, self.chase_target.y)
+    
+    def update_chasing(self, delta_time):
+        """Update chasing behavior and return True if ready for dialogue"""
+        if not self.is_chasing_player or not self.chase_target:
+            return False
+        
+        # Check if we've reached the player
+        distance = math.sqrt((self.x - self.chase_target.x)**2 + (self.y - self.chase_target.y)**2)
+        
+        if distance <= self.interaction_distance:
+            # Reached player, ready for dialogue
+            print(f"DEBUG: NPC {self.npc_id} reached player, ready for dialogue")
+            self.is_chasing_player = False
+            self.ai_state = "idle"
+            return True
+        
+        # Check if player moved away while chasing
+        if distance > self.chase_distance * 2:
+            # Player moved too far, stop chasing
+            print(f"DEBUG: NPC {self.npc_id} stopped chasing - player too far")
+            self.is_chasing_player = False
+            self.ai_state = "idle"
+            return False
+        
+        return False
+    
+    def set_chase_target(self, player):
+        """Set the player as chase target for interruptions"""
+        self.chase_target = player
+        print(f"DEBUG: NPC {self.npc_id} chase target set to player")
+    
+    def is_extroverted(self):
+        """Check if this NPC is extroverted and will interrupt the player"""
+        return self.extroverted
+    
+    def is_ready_to_remove(self):
+        """Check if NPC has reached the exit and can be removed"""
+        if not self.is_departing or not self.departure_target:
+            return False
+        
+        # Check for departure timeout (30 seconds max)
+        current_time = pygame.time.get_ticks() / 1000.0
+        if hasattr(self, 'departure_start_time') and (current_time - self.departure_start_time) > 30:
+            print(f"DEBUG: NPC {self.npc_id} departure timeout after {(current_time - self.departure_start_time):.1f}s, forcing removal")
+            return True
+        
+        # Check if NPC is outside the tile map bounds
+        # Tile map bounds: x from 0 to 640 (40 tiles * 16), y from 0 to 288 (18 tiles * 16)
+        if self.x < 0 or self.x > 640 or self.y < 0 or self.y > 288:
+            print(f"DEBUG: NPC {self.npc_id} has left tile map bounds at ({self.x:.1f}, {self.y:.1f}) and is ready for removal")
+            return True
 
 def create_npc(x, y, spritesheet_path="Graphics/player_temp.png", scale=1.0):
-    return NPC(x, y, spritesheet_path, scale)
+    npc = NPC(x, y, spritesheet_path, scale)
+    
+    # Randomly assign extroverted personality (30% chance)
+    import random
+    npc.extroverted = random.random() < 0.3
+    
+    if npc.extroverted:
+        print(f"DEBUG: Created extroverted NPC {npc.npc_id}")
+    else:
+        print(f"DEBUG: Created introverted NPC {npc.npc_id}")
+    
+    return npc

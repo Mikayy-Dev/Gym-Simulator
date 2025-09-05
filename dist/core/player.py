@@ -46,6 +46,9 @@ class Player:
         self.weight_plate_count = 0
         self.weight_plate_sprite = pygame.image.load("Graphics/weight_plate.png")
         self.dumbbell_sprite = pygame.image.load("Graphics/dumbbellx16.png")
+        
+        # Dialogue system
+        self.locked_in_dialogue = False
     
     def set_tilemap(self, tilemap):
         self.tilemap = tilemap
@@ -82,85 +85,18 @@ class Player:
 
     
     def check_collision(self, new_x, new_y):
-        """Use the collision system's hybrid approach: tile-based for walls, hitbox-based for objects"""
+        """Unified collision detection using the collision system"""
         if not self.collision_system:
             return False
         
-        # Pass the hitbox data directly to the collision system
-        return not self.collision_system.can_move_to(new_x, new_y, self.hitboxes)
-    
-    def _check_hitbox_based_collision(self, x, y, hitboxes):
-        """
-        Check collision using PURE hitbox-based detection
-        This completely bypasses tile boundaries and uses only hitbox collision
-        """
-        # Check multiple points around the player position for comprehensive collision detection
-        # Cover all four faces: top, bottom, left, right
-        check_points = [
-            # Top face - check multiple points across the top edge
-            (x + 6, y + 10),     # Top-left
-            (x + 8, y + 10),     # Top-center  
-            (x + 10, y + 10),    # Top-right
-            
-            # Bottom face - check multiple points across the bottom edge
-            (x + 6, y + 22),     # Bottom-left
-            (x + 8, y + 22),     # Bottom-center
-            (x + 10, y + 22),    # Bottom-right
-            
-            # Left face - check multiple points along the left edge
-            (x + 6, y + 10),     # Left-top
-            (x + 6, y + 16),     # Left-center
-            (x + 6, y + 22),     # Left-bottom
-            
-            # Right face - check multiple points along the right edge
-            (x + 10, y + 10),    # Right-top
-            (x + 10, y + 16),    # Right-center
-            (x + 10, y + 22),    # Right-bottom
-            
-            # Center points for additional coverage
-            (x + 8, y + 16),     # Center-center
-        ]
-        
-        # PURE HITBOX-BASED COLLISION - NO TILE LOGIC
-        for point_x, point_y in check_points:
-            # Check if this point collides with any object using pure hitbox detection
-            # This bypasses all tile-based logic and uses only hitbox rectangles
-            if self._check_point_collision_pure_hitbox(point_x, point_y, hitboxes):
-                return True
-        
-        return False  # No collision
-    
-    def _check_point_collision_pure_hitbox(self, point_x, point_y, player_hitboxes):
-        """
-        Check collision using ONLY hitbox detection - no tiles, no tile IDs
-        This is pure hitbox-to-hitbox collision checking
-        """
-        # Create a tiny hitbox for the point we're checking
-        point_hitbox = pygame.Rect(point_x, point_y, 1, 1)
-        
-        # Check collision with gym objects using the gym manager
-        if hasattr(self, 'collision_system') and hasattr(self.collision_system, 'gym_manager') and self.collision_system.gym_manager:
-            gym_manager = self.collision_system.gym_manager
-            
-            # Check collision with each gym object
-            for pos, obj in gym_manager.get_collision_objects():
-                collision_rect = obj.get_collision_rect()
-                if collision_rect and point_hitbox.colliderect(collision_rect):
-                    return True  # Collision detected
-        else:
-            # Fallback to old method if gym manager not available
-            for tile_y in range(len(self.tilemap.layer2_tiles)):
-                for tile_x in range(len(self.tilemap.layer2_tiles[0])):
-                    object_tile_id = self.tilemap.layer2_tiles[tile_y][tile_x]
-                    if object_tile_id >= 0:  # This tile has an object
-                        # Create a simple hitbox for the tile
-                        tile_hitbox = pygame.Rect(tile_x * 16, tile_y * 16, 16, 16)
-                        if point_hitbox.colliderect(tile_hitbox):
-                            return True  # Collision detected
-        
-        return False  # No collision
+        # Use the collision system's unified approach
+        return not self.collision_system.can_move_to(new_x, new_y, self.hitboxes, "player")
     
     def handle_input(self, keys):
+        # Don't handle movement input if locked in dialogue
+        if self.locked_in_dialogue:
+            return
+        
         # Update speed based on shift key and stamina
         if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) and self.current_stamina > 0:
             self.speed = self.base_speed * self.sprint_multiplier
@@ -216,26 +152,22 @@ class Player:
     def add_dumbbells(self, amount):
         """Add dumbbells to player inventory"""
         self.dumbbell_count += amount
-        print(f"Player picked up {amount} dumbbells. Total: {self.dumbbell_count}")
     
     def remove_dumbbells(self, amount):
         """Remove dumbbells from player inventory"""
         if self.dumbbell_count >= amount:
             self.dumbbell_count -= amount
-            print(f"Player removed {amount} dumbbells. Total: {self.dumbbell_count}")
             return True
         return False
     
     def add_weight_plates(self, amount):
         """Add weight plates to player inventory"""
         self.weight_plate_count += amount
-        print(f"Player picked up {amount} weight plates. Total: {self.weight_plate_count}")
     
     def remove_weight_plates(self, amount):
         """Remove weight plates from player inventory"""
         if self.weight_plate_count >= amount:
             self.weight_plate_count -= amount
-            print(f"Player returned {amount} weight plates. Total: {self.weight_plate_count}")
             return True
         return False
     
@@ -281,9 +213,11 @@ class Player:
         self.sprite.blit(self.full_sprite, (0, 0), (frame_x, frame_y, 16, 32))
         return self.sprite
     
-    def draw(self, screen):
+    def draw(self, screen, camera):
         current_sprite = self.get_current_sprite()
-        screen.blit(current_sprite, self.rect)
+        player_rect = camera.apply(self)
+        scaled_sprite = camera.apply_sprite(current_sprite)
+        screen.blit(scaled_sprite, player_rect)
     
     def draw_dumbbell_inventory(self, screen, camera):
         """Draw dumbbell inventory display under the player"""

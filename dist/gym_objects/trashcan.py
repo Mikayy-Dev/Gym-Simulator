@@ -15,7 +15,10 @@ class Trashcan(GymObject):
             "body": {"x": 0, "y": 0, "width": self.sprite_width, "height": self.sprite_height}
         }
         
-        self.set_custom_hitbox(16, 12, 0, 4)
+        self.set_custom_hitbox(16, 10, 0, 4)
+        
+        # Set interaction hitbox for player clicks (full sprite dimensions for easier clicking)
+        self.set_interaction_hitbox(self.sprite_width, self.sprite_height, offset_x=0, offset_y=0)
         
         collision_rect = self.get_collision_rect()
         self.depth_y = collision_rect.bottom
@@ -28,3 +31,7 @@ class Trashcan(GymObject):
     
     def start_interaction(self, npc):
         return False
+    
+    def draw(self, screen, camera):
+        """Draw trashcan using base class method for proper dimensions"""
+        super().draw(screen, camera)

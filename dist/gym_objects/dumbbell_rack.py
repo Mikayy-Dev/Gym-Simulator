@@ -6,15 +6,9 @@ class DumbbellRack(GymObject):
         spritesheet_path = "Graphics/stardew_style_dumbellrack.png"
         super().__init__(x, y, spritesheet_path, scale)
         
-        # Get the actual spritesheet dimensions and force update
-        actual_width = self.spritesheet.get_width()
-        actual_height = self.spritesheet.get_height()
-        
-        # Force update the sprite dimensions to match the actual spritesheet
-        self.sprite_width = actual_width
-        self.sprite_height = actual_height
-        
-
+        # Set correct sprite dimensions for individual frames (not entire spritesheet)
+        self.sprite_width = 32
+        self.sprite_height = 32
         
         # Clear cached sprite since dimensions changed
         self._cached_sprite = None
@@ -30,10 +24,12 @@ class DumbbellRack(GymObject):
             "body": {"x": 0, "y": 0, "width": self.sprite_width, "height": self.sprite_height}
         }
         
-        # Set custom hitbox for better interaction
-        self.set_custom_hitbox(self.sprite_width, self.sprite_height, -7)
+        # Set custom hitbox for collision (smaller, more precise)
+        self.set_custom_hitbox(self.sprite_width, self.sprite_height, offset_x=-7, offset_y=0)
         
-        #print(f"DumbbellRack: After setup - dimensions are {self.sprite_width}x{self.sprite_height}")
+        # Set interaction hitbox for player clicks (full sprite dimensions for easier clicking)
+        self.set_interaction_hitbox(self.sprite_width, self.sprite_height, offset_x=0, offset_y=0)
+        
         
         self.rack_type = rack_type
         self.dumbbells_available = 6
@@ -97,7 +93,6 @@ class DumbbellRack(GymObject):
     
     def borrow_dumbbells(self, npc, weights):
         """NPC borrows dumbbells from the rack"""
-        print(f"DEBUG: NPC {npc.npc_id} attempting to borrow weights: {weights}")
         if npc not in self.borrowed_dumbbells:
             self.borrowed_dumbbells[npc] = []
         
@@ -107,9 +102,7 @@ class DumbbellRack(GymObject):
                 self.racked_dumbbells[weight] -= 1
                 self.borrowed_dumbbells[npc].append(weight)
                 borrowed.append(weight)
-                print(f"DEBUG: Successfully borrowed weight {weight}")
         
-        print(f"DEBUG: Final borrowed list: {borrowed}")
         return borrowed
     
     def has_space_for_dumbbells(self, count):
@@ -153,17 +146,12 @@ class DumbbellRack(GymObject):
 
     def return_dumbbells(self, npc):
         """NPC returns dumbbells to the rack, finding closest available rack if this one is full"""
-        print(f"DEBUG: return_dumbbells() called for NPC {npc.npc_id if hasattr(npc, 'npc_id') else 'unknown'}")
-        print(f"DEBUG: Current dumbbell_count before return: {self.dumbbell_count}")
-        print(f"DEBUG: Borrowed dumbbells: {self.borrowed_dumbbells}")
         
         if npc in self.borrowed_dumbbells:
             returned_count = len(self.borrowed_dumbbells[npc])
-            print(f"DEBUG: Returning {returned_count} dumbbells")
             
             # Check if this rack has space
             if self.has_space_for_dumbbells(returned_count):
-                print(f"DEBUG: This rack has space, returning dumbbells here")
                 # Return to this rack
                 for weight in self.borrowed_dumbbells[npc]:
                     self.racked_dumbbells[weight] += 1
@@ -172,14 +160,11 @@ class DumbbellRack(GymObject):
                 # Update visual dumbbell count to show dumbbells returned
                 old_count = self.dumbbell_count
                 self.dumbbell_count += returned_count
-                print(f"DEBUG: Visual dumbbell count updated: {old_count} -> {self.dumbbell_count}")
             else:
-                print(f"DEBUG: This rack is full, finding closest available rack")
                 # Find closest available rack
                 closest_rack = self.find_closest_available_rack(npc, returned_count)
                 
                 if closest_rack:
-                    print(f"DEBUG: Found closest available rack at ({closest_rack.x}, {closest_rack.y})")
                     # Move dumbbells to the closest available rack
                     for weight in self.borrowed_dumbbells[npc]:
                         closest_rack.racked_dumbbells[weight] += 1
@@ -188,21 +173,17 @@ class DumbbellRack(GymObject):
                     old_count = closest_rack.dumbbell_count
                     closest_rack.dumbbell_count += returned_count
                     closest_rack.update_visual_state()
-                    print(f"DEBUG: Moved {returned_count} dumbbells to rack at ({closest_rack.x}, {closest_rack.y})")
-                    print(f"DEBUG: Closest rack count updated: {old_count} -> {closest_rack.dumbbell_count}")
                     
                     # Clear borrowed dumbbells from this rack
                     del self.borrowed_dumbbells[npc]
                 else:
-                    print(f"DEBUG: No available racks found, dropping dumbbells on floor")
                     # No available racks, drop on floor instead
                     self._create_floor_dumbbells(npc)
         else:
-            print(f"DEBUG: No borrowed dumbbells found for this NPC")
+            pass
     
     def update_visual_state(self):
         """Update the visual state to match the actual dumbbell count"""
-        print(f"DEBUG: [Rack at ({self.x}, {self.y})] update_visual_state() called - dumbbell_count: {self.dumbbell_count}, current_frame: {self.current_visual_frame}")
         
         # Calculate the correct visual frame based on actual dumbbell count
         # Only valid states: 6/6, 4/6, 2/6, 0/6
@@ -225,37 +206,30 @@ class DumbbellRack(GymObject):
             else:
                 target_frame = 0  # Full
         
-        print(f"DEBUG: [Rack at ({self.x}, {self.y})] Calculated target_frame: {target_frame}")
         
         # Only update if the frame needs to change
         if target_frame != self.current_visual_frame:
             old_frame = self.current_visual_frame
             self.current_visual_frame = target_frame
-            print(f"DEBUG: [Rack at ({self.x}, {self.y})] Visual frame updated: {old_frame} -> {target_frame} (dumbbell_count: {self.dumbbell_count})")
             
             # Force cache refresh for new frame
             self._cached_sprite = None
             self._cached_scale = None
             self._cached_zoom = None
         else:
-            print(f"DEBUG: [Rack at ({self.x}, {self.y})] No visual frame change needed (already at {target_frame})")
-      
+            pass
     
     def use_dumbbell(self):
         """NPC uses dumbbells from the rack (takes 2 at a time)"""
-        print(f"DEBUG: [Rack at ({self.x}, {self.y})] use_dumbbell() called - current count: {self.dumbbell_count}, visual frame: {self.current_visual_frame}")
         
         if self.dumbbell_count >= 2:  # NPCs need 2 dumbbells
             old_count = self.dumbbell_count
             self.dumbbell_count -= 2  # Take 2 dumbbells
-            print(f"DEBUG: [Rack at ({self.x}, {self.y})] Dumbbell count: {old_count} -> {self.dumbbell_count}")
            
             self.update_visual_state()
             
-            print(f"DEBUG: [Rack at ({self.x}, {self.y})] After update_visual_state() - visual frame: {self.current_visual_frame}")
             return True
         else:
-            print(f"DEBUG: [Rack at ({self.x}, {self.y})] Not enough dumbbells (need 2, have {self.dumbbell_count})")
             return False
     
     def is_available(self):
@@ -276,6 +250,11 @@ class DumbbellRack(GymObject):
     
     def start_interaction(self, npc):
         """Start dumbbell workout interaction"""
+        
+        
+        # Don't allow interaction if NPC is using squat rack
+        if hasattr(npc, 'using_squat_rack') and npc.using_squat_rack:
+            return False
         
         # Don't clear floor dumbbells when starting interaction - let them accumulate
         # if hasattr(npc, 'npc_id'):
@@ -300,10 +279,8 @@ class DumbbellRack(GymObject):
                 available = self.get_available_weights()
             if available:
                  closest_weight = min(available, key=lambda x: abs(x - preferred))
-                 print(f"DEBUG: NPC {npc.npc_id} borrowing weight {closest_weight}")
                  # Each NPC uses 2 dumbbells per workout
                  self.borrow_dumbbells(npc, [closest_weight, closest_weight])
-                 print(f"DEBUG: After borrowing, borrowed_dumbbells: {self.borrowed_dumbbells}")
         
             return True
         
@@ -311,27 +288,21 @@ class DumbbellRack(GymObject):
     
     def end_interaction(self):
         """End interaction and handle dumbbell return/drop based on chance"""
-        print(f"DEBUG: DumbbellRack.end_interaction() called - occupying_npc: {self.occupying_npc}")
         if self.occupying_npc:
-            print(f"DEBUG: Ending interaction for NPC {self.occupying_npc.npc_id}")
-            print(f"DEBUG: Borrowed dumbbells before handling: {self.borrowed_dumbbells}")
             
             # 40% chance to drop dumbbells on floor, 60% chance to return to rack
             import random
             drop_chance = random.random()
             
             if drop_chance < 0.4:  # 40% chance to drop
-                print(f"DEBUG: NPC {self.occupying_npc.npc_id} dropped dumbbells on floor (chance: {drop_chance:.2f})")
                 self._create_floor_dumbbells(self.occupying_npc)
                 # Don't return to rack - they're on the floor
             else:  # 60% chance to return to rack
-                print(f"DEBUG: NPC {self.occupying_npc.npc_id} returned dumbbells to rack (chance: {drop_chance:.2f})")
                 self.return_dumbbells(self.occupying_npc)
                 # Update visual state to show dumbbells returned
                 self.update_visual_state()
-                print(f"DEBUG: Visual state updated after returning dumbbells")
         else:
-            print(f"DEBUG: No occupying NPC found in end_interaction()")
+            pass
         super().end_interaction()
     
     def _create_floor_dumbbells(self, npc):
@@ -344,12 +315,9 @@ class DumbbellRack(GymObject):
                 if 'floor_total' in self.dumbbell_floor_sprites:
                     total_floor_dumbbells = self.dumbbell_floor_sprites['floor_total']['count']
                 
-                print(f"DEBUG: Current floor total: {total_floor_dumbbells}, adding {borrowed_count} new dumbbells")
-                print(f"DEBUG: Current floor sprites: {self.dumbbell_floor_sprites}")
                 
                 # Add the new dumbbells to the total
                 new_total = total_floor_dumbbells + borrowed_count
-                print(f"DEBUG: New total will be: {new_total}")
                 
                 # Map the total count to the appropriate floor sprite frame
                 # Based on your sprite: frame 0 = 2 dumbbells, frame 1 = 4 dumbbells, frame 2 = 6 dumbbells
@@ -373,8 +341,6 @@ class DumbbellRack(GymObject):
                     'count': new_total  # Store the total count
                 }
                 
-                print(f"DEBUG: Created floor dumbbells for NPC {npc.npc_id} - {borrowed_count} new + {total_floor_dumbbells} existing = {new_total} total, floor frame {floor_frame}")
-                print(f"DEBUG: After creation, floor sprites: {self.dumbbell_floor_sprites}")
                 
                 # Clear the borrowed dumbbells since they're now on the floor
                 del self.borrowed_dumbbells[npc]
@@ -438,10 +404,17 @@ class DumbbellRack(GymObject):
         
         return False
     
-    def pickup_floor_dumbbells(self, mouse_x, mouse_y, camera, player):
+    def pickup_floor_dumbbells(self, mouse_x, mouse_y, camera, player, tilemap=None):
         """Pick up dumbbells from floor when right-clicked"""
-        print(f"DEBUG: Attempting pickup at mouse position ({mouse_x}, {mouse_y})")
-        print(f"DEBUG: Current floor sprites: {len(self.dumbbell_floor_sprites)}")
+        
+        # Check if player is within range (if tilemap is provided)
+        if tilemap:
+            world_x, world_y = camera.reverse_apply_pos(mouse_x, mouse_y)
+            tile_x = int(world_x // 16)
+            tile_y = int(world_y // 16)
+            
+            if not tilemap.is_within_player_range(tile_x, tile_y):
+                return False  # Player not in range
         for npc_id, floor_data in list(self.dumbbell_floor_sprites.items()):
             # Convert world coordinates to screen coordinates
             screen_x, screen_y = camera.apply_pos(floor_data['x'], floor_data['y'])
@@ -463,7 +436,6 @@ class DumbbellRack(GymObject):
             if (sprite_left <= mouse_x <= sprite_right and 
                 sprite_top <= mouse_y <= sprite_bottom):
                 
-                print(f"DEBUG: Mouse is over floor sprite for {npc_id}")
                 
                 # Calculate how many dumbbells to pick up (in 2s: 2, 4, 6, etc.)
                 current_count = floor_data['count']
@@ -474,7 +446,6 @@ class DumbbellRack(GymObject):
                 else:
                     pickup_amount = current_count  # Pick up remaining 1 if that's all there is
                 
-                print(f"DEBUG: Picking up {pickup_amount} dumbbells from {current_count} available")
                 
                 # Add to player inventory - always add 2 to maintain 2s progression
                 if hasattr(player, 'add_dumbbells'):
@@ -485,7 +456,6 @@ class DumbbellRack(GymObject):
                 if new_count <= 0:
                     # Remove completely if no more dumbbells
                     del self.dumbbell_floor_sprites[npc_id]
-                    print(f"DEBUG: Picked up all dumbbells from floor")
                 else:
                     # Update count and potentially change frame
                     floor_data['count'] = new_count
@@ -501,7 +471,6 @@ class DumbbellRack(GymObject):
                     else:
                         floor_data['frame'] = 0  # Default to frame 0
                     
-                    print(f"DEBUG: Picked up {pickup_amount} dumbbells, {new_count} remaining on floor")
                 
                 return True  # Successfully picked up
         
@@ -516,43 +485,31 @@ class DumbbellRack(GymObject):
         available_space = self.max_dumbbells - self.dumbbell_count
         player_dumbbells = player.dumbbell_count
         
-        print(f"DEBUG: Rack has {self.dumbbell_count}/{self.max_dumbbells} dumbbells, available space: {available_space}")
-        print(f"DEBUG: Player has {player_dumbbells} dumbbells")
         
         # Check if rack can accept more dumbbells
         if available_space <= 0:
             return False, "Rack is full"
         
         # Calculate exact amount that can be returned to fill the rack
-        print(f"DEBUG: Checking return logic - available_space: {available_space}, player_dumbbells: {player_dumbbells}")
         
         # Calculate how many dumbbells can be returned to fill the rack
         if available_space > 0:
             # Return the minimum of: available space, player's dumbbells, and 6 (max per return)
             return_amount = min(available_space, player_dumbbells, 6)
-            print(f"DEBUG: Can return {return_amount} dumbbells (space: {available_space}, player: {player_dumbbells})")
         else:
-            print(f"DEBUG: No space available in rack")
             return False, "Rack is full"
         
-        print(f"DEBUG: Final return_amount calculated: {return_amount}")
-        print(f"DEBUG: This should remove {return_amount} from player inventory")
         
         # Remove dumbbells from player
-        print(f"DEBUG: Before removal - Player has {player.dumbbell_count} dumbbells, will remove {return_amount}")
         if hasattr(player, 'remove_dumbbells'):
             success = player.remove_dumbbells(return_amount)
-            print(f"DEBUG: Player.remove_dumbbells({return_amount}) returned: {success}")
-            print(f"DEBUG: After removal - Player now has {player.dumbbell_count} dumbbells")
         else:
             old_count = player.dumbbell_count
             player.dumbbell_count -= return_amount
-            print(f"DEBUG: Direct removal: {old_count} -> {player.dumbbell_count} (removed {return_amount})")
         
         # Add dumbbells back to rack (exact amount that fits)
         old_rack_count = self.dumbbell_count
         self.dumbbell_count += return_amount
-        print(f"DEBUG: Rack count: {old_rack_count} -> {self.dumbbell_count} (added {return_amount})")
         
         # Update visual state to show more dumbbells
         self._update_visual_state_for_return(return_amount)
@@ -584,6 +541,13 @@ class DumbbellRack(GymObject):
     
     def update(self, delta_time):
         """Update rack logic including workout effects"""
+        # Check if the occupying NPC is departing - if so, end interaction immediately
+        if (self.occupied and self.occupying_npc and 
+            hasattr(self.occupying_npc, 'departure_pending') and 
+            self.occupying_npc.departure_pending):
+            self.end_interaction()
+            return
+        
         super().update(delta_time)
     
     def draw(self, screen, camera):
@@ -604,25 +568,23 @@ class DumbbellRack(GymObject):
         
         # Draw state indicators (including attention sprite) using base class method
         self._draw_state_indicators(screen, camera, screen_x, screen_y)
-        
-        # Draw floor dumbbells under NPCs
-        self._draw_floor_dumbbells(screen, camera)
     
     def _draw_floor_dumbbells(self, screen, camera):
         """Draw dumbbells on the floor under NPCs"""
-        for npc_id, floor_data in self.dumbbell_floor_sprites.items():
-            # Get scaled sprite for this frame
-            scaled_sprite = self._get_scaled_floor_sprite(floor_data['frame'], camera)
-            
-            # Convert world coordinates to screen coordinates
-            screen_x, screen_y = camera.apply_pos(floor_data['x'], floor_data['y'])
-            
-            # Position floor sprite centered under NPC
-            draw_x = screen_x - (scaled_sprite.get_width() // 2)
-            draw_y = screen_y - (scaled_sprite.get_height() // 2)
-            
-            # Draw the scaled floor dumbbell sprite
-            screen.blit(scaled_sprite, (draw_x, draw_y))
+        if len(self.dumbbell_floor_sprites) > 0:
+            for npc_id, floor_data in self.dumbbell_floor_sprites.items():
+                # Get scaled sprite for this frame
+                scaled_sprite = self._get_scaled_floor_sprite(floor_data['frame'], camera)
+                
+                # Convert world coordinates to screen coordinates
+                screen_x, screen_y = camera.apply_pos(floor_data['x'], floor_data['y'])
+                
+                # Position floor sprite centered under NPC
+                draw_x = screen_x - (scaled_sprite.get_width() // 2)
+                draw_y = screen_y - (scaled_sprite.get_height() // 2)
+                
+                # Draw the scaled floor dumbbell sprite
+                screen.blit(scaled_sprite, (draw_x, draw_y))
         
     def _needs_attention(self):
         """Override to check if there are dumbbells on the floor and the rack is empty"""
@@ -657,7 +619,6 @@ class DumbbellRack(GymObject):
             not hasattr(self, '_cached_frame') or 
             self._cached_frame != self.current_visual_frame):
             
-            print(f"DEBUG: Updating cached sprite - frame: {self.current_visual_frame}, zoom: {camera.zoom}")
             
             # Get the correct dimensions
             width, height = self.get_sprite_dimensions()
@@ -666,7 +627,6 @@ class DumbbellRack(GymObject):
             frame_x = self.current_visual_frame * width
             frame_y = 0
             
-            print(f"DEBUG: Extracting sprite from spritesheet at frame_x: {frame_x}")
             
             # Extract the sprite from the spritesheet at the correct frame
             sprite = pygame.Surface((width, height), pygame.SRCALPHA)
@@ -683,6 +643,5 @@ class DumbbellRack(GymObject):
             self._cache_version = getattr(self, '_cache_version', 0)
             self._cached_frame = self.current_visual_frame
             
-            print(f"DEBUG: Cached sprite updated for frame {self.current_visual_frame}")
         
         return self._cached_sprite

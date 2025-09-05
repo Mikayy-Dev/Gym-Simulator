@@ -19,8 +19,8 @@ class SquatRack(GymObject):
     
         self.animation_frame = 0
         self.animation_timer = 0
-        self.animation_speed = 0.1  # Slower animation for better visibility
-        self.animation_frames = [1, 2, 3, 4, 5]  # Frames 1-6 for in-use animation
+        self.animation_speed = 0.1  # Animation speed for squat rack
+        self.animation_frames = [1, 2, 3, 4, 5]  # Frames 1-5 for in-use animation
         self.current_animation_index = 0  # Index into animation_frames array
         self.frame_count = 0  # Track how many frames have been drawn
         
@@ -28,6 +28,9 @@ class SquatRack(GymObject):
         self.can_become_dirty = False
            
         self.set_custom_hitbox(48, 12, 0, 4)
+        
+        # Set interaction hitbox for player clicks (full sprite dimensions for easier clicking)
+        self.set_interaction_hitbox(self.sprite_width, self.sprite_height, offset_x=0, offset_y=0)
         
         # Weight system properties
         self.weight_capacity = 500  # Default weight capacity
@@ -42,10 +45,12 @@ class SquatRack(GymObject):
         self.max_plates = 4  # Maximum plates on rack
         self.plate_count = 4  # Start with 4 plates (full rack)
         
+        # Caching for animation
+        self._cached_frame = None
+        
         collision_rect = self.get_collision_rect()
         self.depth_y = collision_rect.bottom
         
-        print(f"SQUAT RACK: Created at ({self.x}, {self.y}) with {self.plate_count} plates (Frame {self.current_visual_frame})")
         
        
     
@@ -67,127 +72,142 @@ class SquatRack(GymObject):
         return False
     
     def start_interaction(self, npc):
-
         if super().start_interaction(npc):
+            #print(f"DEBUG: Squat rack interaction started with NPC {npc.npc_id}")
             self.interaction_duration = 5.0
             self._notify_pathfinding_update()
            
             return True
-        
+    
         return False
     
     def update(self, delta_time):
+        """Update squat rack logic and animation"""
+        # Check if the occupying NPC is departing - if so, end interaction immediately
+        if (self.occupied and self.occupying_npc and 
+            hasattr(self.occupying_npc, 'departure_pending') and 
+            self.occupying_npc.departure_pending):
+            self.end_interaction()
+            return
         
         super().update(delta_time)
         
-                # Update squat rack animation when occupied
-       
-        
+        # Update squat rack animation when occupied
         if self.occupied:
-            
             self.animation_timer += delta_time
-          
+            
             
             if self.animation_timer >= self.animation_speed:
                 self.animation_timer = 0
                 self.current_animation_index = (self.current_animation_index + 1) % len(self.animation_frames)
                 current_frame = self.animation_frames[self.current_animation_index]
-                
+               
         else:
             # Reset animation when not occupied
             if self.current_animation_index != 0:
-              
                 self.current_animation_index = 0
+                self.animation_timer = 0
         
         # Cleaning animation is handled by the base object (frames 7-12)
     
     def end_interaction(self):
         """End interaction and handle plate dropping based on chance"""
-        print(f"DEBUG: SquatRack.end_interaction() called - occupying_npc: {self.occupying_npc}")
         if self.occupying_npc:
-            print(f"DEBUG: Ending interaction for NPC {self.occupying_npc.npc_id}")
             
-            # 50% chance to drop plates, 50% chance to keep them on rack
+            # Clear the squat rack flag
+            if hasattr(self.occupying_npc, 'using_squat_rack'):
+                self.occupying_npc.using_squat_rack = False
+            
+            # Always drop plates when NPC finishes workout
+            # 50% chance to drop 2 plates (frame 6), 50% chance to drop 4 plates (frame 8)
             import random
             drop_chance = random.random()
             
-            if drop_chance < 0.5:  # 50% chance to drop plates
-                print(f"DEBUG: NPC {self.occupying_npc.npc_id} dropped plates (chance: {drop_chance:.2f})")
-                # Trigger plate drop
-                if hasattr(self, 'trigger_plate_drop'):
-                    success, message = self.trigger_plate_drop(self.occupying_npc)
-                    if success:
-                        print(f"DEBUG: {message}")
-            else:  # 50% chance to keep plates on rack
-                print(f"DEBUG: NPC {self.occupying_npc.npc_id} kept plates on rack (chance: {drop_chance:.2f})")
+            if drop_chance < 0.5:  # 50% chance to drop 2 plates
+                plate_count = min(2, self.plate_count)
+            else:  # 50% chance to drop 4 plates
+                plate_count = min(4, self.plate_count)
+            
+            # Create floor plates and update visual state
+            self._create_floor_plates(self.occupying_npc, plate_count)
         else:
-            print(f"DEBUG: No occupying NPC found in end_interaction()")
+            pass
         
         # Call the base object's end_interaction method
         super().end_interaction()
+        
     
     def draw(self, screen, camera):
-        # Determine which frame to draw
-        if self.cleaning:
-            frame = self.cleaning_frame
-        elif self.occupied:
-            frame = self.animation_frames[self.current_animation_index]  # Use frames 1-5 for in-use
-            self.frame_count += 1
-        else:
-            frame = self.current_visual_frame  # Use visual frame for idle state
-            # Debug: Print frame being drawn for idle state
-            if hasattr(self, '_last_debug_frame') and self._last_debug_frame != frame:
-                print(f"SQUAT RACK: Drawing frame {frame} (visual_frame: {self.current_visual_frame}, plate_count: {self.plate_count})")
-                self._last_debug_frame = frame
-            elif not hasattr(self, '_last_debug_frame'):
-                self._last_debug_frame = frame
-        
-        # Check if we need to recreate the sprite (new frame, scale change, or zoom change)
-        if (self._cached_sprite is None or 
-            self._cached_scale != self.scale or 
-            self._cached_zoom != camera.zoom or
-            not hasattr(self, '_cached_frame') or 
-            self._cached_frame != frame):
+        """Draw squat rack with animation support"""
+        try:
+            # Determine which frame to draw
+            if self.occupied:
+                # Use animation frame when occupied
+                frame = self.animation_frames[self.current_animation_index]
+            else:
+                # Use visual frame when not occupied (for plate states)
+                frame = self.current_visual_frame
             
-            self._cached_scale = self.scale
-            self._cached_zoom = camera.zoom
+            # Check if we need to update the cached sprite
+            if (self._cached_sprite is None or 
+                self._cached_scale != self.scale or 
+                self._cached_zoom != camera.zoom or
+                self._cached_frame != frame):
+                
+                self._cached_scale = self.scale
+                self._cached_zoom = camera.zoom
+                self._cached_frame = frame
+                
+                # Calculate scaled dimensions
+                sprite_width = int(self.sprite_width * camera.zoom)
+                sprite_height = int(self.sprite_height * camera.zoom)
+                
+                # Scale the spritesheet
+                scaled_spritesheet = pygame.transform.scale(self.spritesheet, 
+                    (int(self.spritesheet.get_width() * self.scale * camera.zoom), 
+                     int(self.spritesheet.get_height() * self.scale * camera.zoom)))
+                
+                # Extract the frame
+                frame_width = sprite_width
+                frame_height = sprite_height
+                
+                # Calculate frame position in the spritesheet
+                frame_x = frame * frame_width
+                frame_y = 0
+                
+                # Check if frame is within spritesheet bounds
+                if frame_x + frame_width <= scaled_spritesheet.get_width():
+                    self._cached_sprite = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
+                    self._cached_sprite.blit(scaled_spritesheet, (0, 0), 
+                        (frame_x, frame_y, frame_width, frame_height))
+                else:
+                    # Fallback to frame 0 if requested frame doesn't exist
+                    self._cached_sprite = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
+                    self._cached_sprite.blit(scaled_spritesheet, (0, 0), 
+                        (0, 0, frame_width, frame_height))
             
-            sprite_width = int(self.sprite_width * camera.zoom)
-            sprite_height = int(self.sprite_height * camera.zoom)
+            # Calculate screen position
+            screen_x, screen_y = camera.apply_pos(self.x, self.y)
             
-            frame_width = int(64 * self.scale * camera.zoom)
-            frame_height = int(64 * self.scale * camera.zoom)
+            # Center the sprite
+            draw_x = screen_x - (self._cached_sprite.get_width() // 2)
+            draw_y = screen_y - (self._cached_sprite.get_height() // 2)
             
-            scaled_spritesheet = pygame.transform.scale(self.spritesheet, 
-                (int(self.spritesheet.get_width() * self.scale * camera.zoom), 
-                 int(self.spritesheet.get_height() * self.scale * camera.zoom)))
+            # Draw the sprite
+            screen.blit(self._cached_sprite, (draw_x, draw_y))
             
-            self._cached_sprite = pygame.Surface((frame_width, frame_height), pygame.SRCALPHA)
-            self._cached_sprite.blit(scaled_spritesheet, (0, 0), 
-                (frame * frame_width, 0, frame_width, frame_height))
+            # Draw state indicators
+            self._draw_state_indicators(screen, camera, screen_x, screen_y)
             
-            # Store the frame that was cached
-            self._cached_frame = frame
-        
-        screen_x, screen_y = camera.apply_pos(self.x, self.y)
-        draw_x = screen_x - (self._cached_sprite.get_width() // 2)
-        draw_y = screen_y - (self._cached_sprite.get_height() // 2)
-        
-        screen.blit(self._cached_sprite, (draw_x, draw_y))
-        
-        # Draw state indicators (including attention sprite) using base class method
-        self._draw_state_indicators(screen, camera, screen_x, screen_y)
+        except Exception as e:
+            # Fallback to base class drawing
+            super().draw(screen, camera)
     
     def _notify_pathfinding_update(self):
         pass
     
     def _create_floor_plates(self, npc, plate_count):
         """Handle plate dropping (no visual floor graphics - just track for pickup)"""
-        if npc:
-            print(f"DEBUG: NPC {npc.npc_id} dropped {plate_count} plates")
-        else:
-            print(f"DEBUG: Player dropped {plate_count} plates")
-        
         # Check if there are already plates on the floor from previous NPCs
         total_floor_plates = 0
         if 'floor_total' in self.plate_floor_sprites:
@@ -195,17 +215,15 @@ class SquatRack(GymObject):
         
         # Add the new plates to the total
         new_total = total_floor_plates + plate_count
-        print(f"DEBUG: Total plates on floor: {new_total}")
         
         # Store count for pickup (no visual sprites)
         self.plate_floor_sprites['floor_total'] = {
             'count': new_total
         }
-        
         if npc:
-            print(f"DEBUG: Created floor plates for NPC {npc.npc_id} - {plate_count} new + {total_floor_plates} existing = {new_total} total")
+            pass
         else:
-            print(f"DEBUG: Created floor plates for player - {plate_count} new + {total_floor_plates} existing = {new_total} total")
+            pass
         
         # Update the squat rack's plate count and visual state
         self.plate_count -= plate_count
@@ -213,86 +231,56 @@ class SquatRack(GymObject):
     
 
     
-    def trigger_plate_drop(self, npc=None):
-        """Trigger plate dropping - only for NPCs"""
-        if self.plate_count <= 0:
-            return False, "No plates to drop"
-        
-        # Only allow NPCs to trigger plate drops
-        if not npc:
-            return False, "Only NPCs can drop plates"
-        
-        # 50% chance to drop 2 plates, 50% chance to drop all 4 plates
-        import random
-        drop_chance = random.random()
-        
-        if drop_chance < 0.5:  # 50% chance to drop 2 plates
-            plate_count = min(2, self.plate_count)  # Don't drop more than available
-            print(f"SQUAT RACK: Dropping {plate_count} plates (chance: {drop_chance:.2f} - 2 plates)")
-        else:  # 50% chance to drop all 4 plates
-            plate_count = min(4, self.plate_count)  # Don't drop more than available
-            print(f"SQUAT RACK: Dropping {plate_count} plates (chance: {drop_chance:.2f} - 4 plates)")
-        
-        # Create floor plates and update visual state
-        self._create_floor_plates(npc, plate_count)
-        
-        print(f"SQUAT RACK: Successfully dropped {plate_count} plates. Rack now has {self.plate_count} plates.")
-        return True, f"Triggered drop of {plate_count} plates"
     
     def update_visual_state(self):
         """Update the visual state based on rack plate count and floor plates"""
-        # Calculate the correct visual frame based on rack plate count and floor plates
-        # Frame 0: Default state (4 plates on rack)
-        # Frame 6: 2 plates dropped (2 plates on rack, 2 plates on floor)
-        # Frame 7: 1 plate on rack (3 plates picked up from floor)
-        # Frame 8: All 4 plates dropped (0 plates on rack, 4 plates on floor)
-        # Frame 9: 2 plates on floor (2 plates picked up from frame 8)
-        # Frame 10: All plates picked up (0 plates on floor)
+        # Only update visual state if we're not in the middle of a manual frame progression
+        # Manual frame progression is handled in pickup_floor_plates and return_plates_to_rack
         
-        has_floor_plates = len(self.plate_floor_sprites) > 0
+        # Check if there are floor plates
+        floor_plate_count = 0
+        if 'floor_total' in self.plate_floor_sprites:
+            floor_plate_count = self.plate_floor_sprites['floor_total']['count']
         
-        if self.plate_count == 4:
+        has_floor_plates = floor_plate_count > 0
+        
+        # Only auto-calculate frame if we're in a state that needs it
+        # (e.g., when NPC drops plates or when returning to default state)
+        if self.current_visual_frame == 0 and self.plate_count == 4:
+            # Already in correct default state
+            return
+        elif self.current_visual_frame in [1, 2, 3, 4, 5]:
+            # In animation state - don't change
+            return
+        elif self.current_visual_frame in [6, 7, 8, 9, 10]:
+            # In manual progression state - don't auto-calculate
+            # Just ensure cache is invalidated for visual updates
+            self._cached_sprite = None
+            self._cached_scale = None
+            self._cached_zoom = None
+            self._cached_frame = None
+            return
+        
+        # Only auto-calculate for initial plate drops from NPCs
+        if self.plate_count == 2 and has_floor_plates and floor_plate_count == 2:
+            target_frame = 6  # NPC dropped 1 group (2 plates on rack, 2 on floor)
+        elif self.plate_count == 0 and has_floor_plates and floor_plate_count == 4:
+            target_frame = 8  # NPC dropped 2 groups (0 plates on rack, 4 on floor)
+        elif self.plate_count == 4 and not has_floor_plates:
             target_frame = 0  # Default state (full rack)
-        elif has_floor_plates:
-            if self.plate_count == 2:
-                target_frame = 6  # 2 plates dropped (2 plates on rack, 2 on floor)
-            elif self.plate_count == 0:
-                # Check how many plates are on the floor to determine frame
-                if 'floor_total' in self.plate_floor_sprites:
-                    floor_plate_count = self.plate_floor_sprites['floor_total']['count']
-                else:
-                    floor_plate_count = 0
-                    
-                if floor_plate_count == 4:
-                    target_frame = 8  # All 4 plates dropped (0 plates on rack, 4 on floor)
-                elif floor_plate_count == 2:
-                    target_frame = 9  # 2 plates on floor (2 plates picked up from frame 8)
-                elif floor_plate_count == 0:
-                    target_frame = 10  # All plates picked up (0 plates on floor)
-                else:
-                    target_frame = 8  # Default to frame 8
-            elif self.plate_count == 1:
-                target_frame = 7  # 1 plate on rack (3 plates picked up from floor)
-            else:
-                target_frame = 6  # Default to frame 6 for other cases
         else:
-            # No floor plates - check if we have plates on the rack
-            if self.plate_count == 0:
-                target_frame = 10  # All plates picked up (0 plates on floor, 0 on rack)
-            else:
-                target_frame = 7  # Some plates on rack, none on floor
+            # Don't change frame if we don't recognize the state
+            return
         
         # Only update if the frame needs to change
         if target_frame != self.current_visual_frame:
-            old_frame = self.current_visual_frame
             self.current_visual_frame = target_frame
             # Force cache refresh for new frame
             self._cached_sprite = None
             self._cached_scale = None
             self._cached_zoom = None
-            print(f"SQUAT RACK: Visual frame updated from {old_frame} to {target_frame} (rack: {self.plate_count})")
-        else:
-            print(f"SQUAT RACK: No visual frame change needed (already at {target_frame}, rack: {self.plate_count})")
+            self._cached_frame = None
+        
     
     def is_available(self):
         """Override to check if rack is available for NPC use"""
@@ -305,13 +293,20 @@ class SquatRack(GymObject):
     
     def is_mouse_over_floor_plates(self, mouse_x, mouse_y, camera):
         """Check if there are floor plates available for pickup"""
-        # Only return True if the squat rack has plates on the floor (frames 6, 8, 9)
-        return self.current_visual_frame in [6, 8, 9]
+        # Only return True if the squat rack has plates on the floor (frames 6, 7, 8, 9, 10)
+        return self.current_visual_frame in [6, 7, 8, 9, 10]
     
-    def pickup_floor_plates(self, mouse_x, mouse_y, camera, player):
+    def pickup_floor_plates(self, mouse_x, mouse_y, camera, player, tilemap=None):
         """Pick up 2 plates at a time from the squat rack when right-clicked"""
-        print(f"DEBUG: Attempting plate pickup at mouse position ({mouse_x}, {mouse_y})")
-        print(f"DEBUG: Current floor sprites: {len(self.plate_floor_sprites)}")
+        
+        # Check if player is within range (if tilemap is provided)
+        if tilemap:
+            world_x, world_y = camera.reverse_apply_pos(mouse_x, mouse_y)
+            tile_x = int(world_x // 16)
+            tile_y = int(world_y // 16)
+            
+            if not tilemap.is_within_player_range(tile_x, tile_y):
+                return False  # Player not in range
         
         # Check if there are plates on the floor to pick up
         if 'floor_total' in self.plate_floor_sprites:
@@ -321,7 +316,6 @@ class SquatRack(GymObject):
             if current_count > 0:
                 # Pick up 2 plates at a time
                 plates_to_pickup = min(2, current_count)  # Pick up 2 plates or remaining amount
-                print(f"DEBUG: Picking up {plates_to_pickup} plates from floor (was {current_count})")
                 
                 # Add plates to player inventory
                 if hasattr(player, 'add_weight_plates'):
@@ -329,19 +323,29 @@ class SquatRack(GymObject):
                 else:
                     player.weight_plate_count += plates_to_pickup
                 
-                print(f"DEBUG: Player now has {player.weight_plate_count} plates")
                 
                 # Update floor plate count
                 floor_data['count'] = current_count - plates_to_pickup
                 
+                # Manual frame progression for pickup:
+                # Frame 6 → Frame 7 (when picking up 2 weights from frame 6)
+                # Frame 8 → Frame 9 (when picking up 2 weights from frame 8)
+                # Frame 9 → Frame 10 (when picking up remaining weights from frame 9)
+                if self.current_visual_frame == 6:
+                    # Picking up from frame 6: 6 → 7 (2 weights picked up, 2 remain on floor)
+                    self.current_visual_frame = 7
+                elif self.current_visual_frame == 8:
+                    # Picking up from frame 8: 8 → 9 (2 weights picked up, 2 remain on floor)
+                    self.current_visual_frame = 9
+                elif self.current_visual_frame == 9:
+                    # Picking up from frame 9: 9 → 10 (remaining 2 weights picked up)
+                    self.current_visual_frame = 10
+                
                 # If no more plates on floor, remove the floor data
                 if floor_data['count'] <= 0:
                     del self.plate_floor_sprites['floor_total']
-                    print(f"DEBUG: Picked up all plates from floor")
-                else:
-                    print(f"DEBUG: {floor_data['count']} plates remaining on floor")
                 
-                # Update visual state (should progress through frames 8->9->10->7)
+                # Update visual state (after manual frame progression)
                 self.update_visual_state()
                 
                 return True  # Successfully picked up
@@ -357,32 +361,33 @@ class SquatRack(GymObject):
         available_space = self.max_plates - self.plate_count
         player_plates = player.weight_plate_count
         
-        print(f"DEBUG: Rack has {self.plate_count}/{self.max_plates} plates, available space: {available_space}")
-        print(f"DEBUG: Player has {player_plates} plates")
-        
         # Check if rack can accept more plates
         if available_space <= 0:
             return False, "Rack is full"
         
-        # Return 2 plates at a time
+        # Return exactly 2 plates at a time (or remaining if less than 2)
         return_amount = min(available_space, player_plates, 2)
-        print(f"DEBUG: Can return {return_amount} plates (2 at a time)")
         
         # Remove plates from player
         if hasattr(player, 'remove_weight_plates'):
             success = player.remove_weight_plates(return_amount)
-            print(f"DEBUG: Player.remove_weight_plates({return_amount}) returned: {success}")
         else:
-            old_count = player.weight_plate_count
             player.weight_plate_count -= return_amount
-            print(f"DEBUG: Direct removal: {old_count} -> {player.weight_plate_count} (removed {return_amount})")
         
         # Add plates back to rack
-        old_rack_count = self.plate_count
         self.plate_count += return_amount
-        print(f"DEBUG: Rack count: {old_rack_count} -> {self.plate_count} (added {return_amount})")
         
-        # Update visual state to show more plates
+        # Frame progression when returning plates:
+        # Frame 10 → Frame 7 (when returning 2 weights)
+        # Frame 7 → Frame 0 (when returning 2 more weights)
+        if self.current_visual_frame == 10:
+            # First return: 10 → 7 (2 weights returned)
+            self.current_visual_frame = 7
+        elif self.current_visual_frame == 7:
+            # Second return: 7 → 0 (2 more weights returned)
+            self.current_visual_frame = 0
+        
+        # Update visual state to show more plates (after manual frame progression)
         self.update_visual_state()
         
         return True, f"Returned {return_amount} weight plate(s) to rack"

@@ -82,7 +82,9 @@ class Entity:
         rect_y = collision_y - (self.sprite_height // 2)
         
         hitbox_rects = self.collision_system.get_hitbox_rects(rect_x, rect_y, self.hitboxes)
-        return not self.collision_system.can_move_to(rect_x, rect_y, hitbox_rects)
+        # Determine entity type - NPCs have npc_id, players don't
+        entity_type = "npc" if hasattr(self, 'npc_id') else "player"
+        return not self.collision_system.can_move_to(rect_x, rect_y, hitbox_rects, entity_type)
     
     def move_to(self, new_x, new_y):
         """Move entity to new position if no collision"""

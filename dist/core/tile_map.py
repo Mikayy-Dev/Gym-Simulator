@@ -78,6 +78,68 @@ class TileMap:
                 scaled_tile = pygame.transform.scale(tile_surface, (scaled_tile_size, scaled_tile_size))
                 screen.blit(scaled_tile, (screen_x, screen_y))
     
+    def draw_floors_only(self, screen, camera):
+        """Draw only floor tiles (not wall tiles)"""
+        for y, row in enumerate(self.layer1_tiles):
+            for x, tile_id in enumerate(row):
+                # Only draw floor tiles (tile_id == 46)
+                if tile_id != 46:
+                    continue
+                    
+                tile_x = x * self.tile_size
+                tile_y = y * self.tile_size
+                
+                # Apply camera transform
+                screen_x, screen_y = camera.apply_pos(tile_x, tile_y)
+                scaled_tile_size = self.tile_size * camera.zoom
+                
+                # Create surface for the tile
+                tile_surface = pygame.Surface((self.tile_size, self.tile_size))
+                
+                # Floor tile - extract from cached floor image
+                if self.floor_image:
+                    sprite_x = (tile_id % 32) * self.tile_size
+                    sprite_y = (tile_id // 32) * self.tile_size
+                    tile_surface.blit(self.floor_image, (0, 0), (sprite_x, sprite_y, self.tile_size, self.tile_size))
+                else:
+                    # Fallback: draw a colored rectangle
+                    tile_surface.fill((100, 100, 100))
+                
+                # Scale the extracted sprite
+                scaled_tile = pygame.transform.scale(tile_surface, (scaled_tile_size, scaled_tile_size))
+                screen.blit(scaled_tile, (screen_x, screen_y))
+    
+    def draw_walls_only(self, screen, camera):
+        """Draw only wall tiles (not floor tiles)"""
+        for y, row in enumerate(self.layer1_tiles):
+            for x, tile_id in enumerate(row):
+                # Skip floor tiles (tile_id == 46)
+                if tile_id == 46:
+                    continue
+                    
+                tile_x = x * self.tile_size
+                tile_y = y * self.tile_size
+                
+                # Apply camera transform
+                screen_x, screen_y = camera.apply_pos(tile_x, tile_y)
+                scaled_tile_size = self.tile_size * camera.zoom
+                
+                # Create surface for the tile
+                tile_surface = pygame.Surface((self.tile_size, self.tile_size))
+                
+                # Wall tile - extract from cached walls image
+                if self.walls_image:
+                    sprite_x = (tile_id % 30) * self.tile_size
+                    sprite_y = (tile_id // 30) * self.tile_size
+                    tile_surface.blit(self.walls_image, (0, 0), (sprite_x, sprite_y, self.tile_size, self.tile_size))
+                else:
+                    # Fallback: draw a colored rectangle
+                    tile_surface.fill((150, 150, 150))
+                
+                # Scale the extracted sprite
+                scaled_tile = pygame.transform.scale(tile_surface, (scaled_tile_size, scaled_tile_size))
+                screen.blit(scaled_tile, (screen_x, screen_y))
+    
     def is_collidable(self, tile_id):
         # Define collidable tile IDs - easy to modify
         collidable_ids = {882, 912, 853, 763, 793, 823, 883, 822, 732, 791,821, 851,761, 942}

@@ -24,6 +24,9 @@ class FrontDesk(GymObject):
         
         self.set_custom_hitbox(64, 8, 0, -24)
         
+        # Set interaction hitbox for player clicks (full sprite dimensions for easier clicking)
+        self.set_interaction_hitbox(self.sprite_width, self.sprite_height, offset_x=0, offset_y=0)
+        
         collision_rect = self.get_collision_rect()
         self.depth_y = collision_rect.bottom
     
@@ -38,6 +41,13 @@ class FrontDesk(GymObject):
         return False
     
     def update(self, delta_time):
+        # Check if the occupying NPC is departing - if so, end interaction immediately
+        if (self.occupied and self.occupying_npc and 
+            hasattr(self.occupying_npc, 'departure_pending') and 
+            self.occupying_npc.departure_pending):
+            self.end_interaction()
+            return
+        
         super().update(delta_time)
         
         if self.occupied:
@@ -59,8 +69,8 @@ class FrontDesk(GymObject):
             sprite_width = int(self.sprite_width * camera.zoom)
             sprite_height = int(self.sprite_height * camera.zoom)
             
-            frame_width = int(64 * self.scale * camera.zoom)
-            frame_height = int(64 * self.scale * camera.zoom)
+            frame_width = int(self.sprite_width * camera.zoom)
+            frame_height = int(self.sprite_height * camera.zoom)
             
             scaled_spritesheet = pygame.transform.scale(self.spritesheet, 
                 (int(self.spritesheet.get_width() * self.scale * camera.zoom), 
@@ -75,6 +85,9 @@ class FrontDesk(GymObject):
         draw_y = screen_y - (self._cached_sprite.get_height() // 2)
         
         screen.blit(self._cached_sprite, (draw_x, draw_y))
+        
+        # Draw state indicators (attention, etc.)
+        self._draw_state_indicators(screen, camera, screen_x, screen_y)
     
     def _notify_pathfinding_update(self):
         pass
