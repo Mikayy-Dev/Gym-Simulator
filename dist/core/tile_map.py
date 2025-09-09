@@ -1,5 +1,6 @@
 import pygame
 import csv
+from .time_based_background import TimeBasedBackground
 
 class TileMap:
     def __init__(self, layer1_csv, layer2_csv, tile_size=16):
@@ -32,6 +33,10 @@ class TileMap:
         except:
             self.floor_image = None
             self.walls_image = None
+        
+        # Initialize time-based background system
+        self.time_background = TimeBasedBackground()
+        self.game_clock = None
         
         # Note: Animation manager and gym object setup moved to GymObjectManager
     
@@ -79,7 +84,15 @@ class TileMap:
                 screen.blit(scaled_tile, (screen_x, screen_y))
     
     def draw_floors_only(self, screen, camera):
-        """Draw only floor tiles (not wall tiles)"""
+        """Draw only floor tiles (not wall tiles) with time-based color tinting"""
+        # Get time-based color tint if game clock is available
+        color_tint = None
+        if self.game_clock:
+            color_tint = self.time_background.get_color_tint(
+                self.game_clock.current_hour, 
+                self.game_clock.current_minute
+            )
+        
         for y, row in enumerate(self.layer1_tiles):
             for x, tile_id in enumerate(row):
                 # Only draw floor tiles (tile_id == 46)
@@ -104,6 +117,10 @@ class TileMap:
                 else:
                     # Fallback: draw a colored rectangle
                     tile_surface.fill((100, 100, 100))
+                
+                # Apply time-based color tint if available
+                if color_tint:
+                    tile_surface = self.time_background.apply_color_tint(tile_surface, color_tint)
                 
                 # Scale the extracted sprite
                 scaled_tile = pygame.transform.scale(tile_surface, (scaled_tile_size, scaled_tile_size))
@@ -173,8 +190,26 @@ class TileMap:
         
         # Check if tile is within 5x5 radius (2 tiles in each direction from center)
         range_size = 2
-        return (abs(tile_x - player_tile_x) <= range_size and 
-                abs(tile_y - player_tile_y) <= range_size)
+        in_range = (abs(tile_x - player_tile_x) <= range_size and 
+                   abs(tile_y - player_tile_y) <= range_size)
+        
+        # Debug logging (can be removed later)
+        if hasattr(self, '_debug_range_checks') and self._debug_range_checks:
+            print(f"Range check: tile({tile_x},{tile_y}) vs player({player_tile_x},{player_tile_y}) = {in_range}")
+        
+        return in_range
+    
+    def set_player(self, player):
+        """Set the player reference for range calculations"""
+        self.player = player
+    
+    def set_game_clock(self, game_clock):
+        """Set the game clock reference for time-based effects"""
+        self.game_clock = game_clock
+    
+    def enable_debug_range_checks(self, enable=True):
+        """Enable or disable debug logging for range checks"""
+        self._debug_range_checks = enable
     
     def draw_tile_highlight(self, screen, camera):
         """Draw a highlight around the tile the mouse is currently over"""

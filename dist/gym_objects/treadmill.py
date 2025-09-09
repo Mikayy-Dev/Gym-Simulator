@@ -49,6 +49,11 @@ class Treadmill(GymObject):
         """Start treadmill workout interaction"""
         # Check if treadmill is in "on but not occupied" state
         if self.on_but_not_occupied:
+            # Trigger happiness penalty event for unattended running
+            try:
+                setattr(npc, 'happiness_event_treadmill_unattended', True)
+            except Exception:
+                pass
             return False
         
         if super().start_interaction(npc):

@@ -91,6 +91,18 @@ class Bench(GymObject):
     
     def start_interaction(self, npc):
         """Start bench workout interaction"""
+        # If bench is dirty, block interaction and flag cleaning path
+        if self.has_state("dirty"):
+            try:
+                setattr(npc, 'happiness_event_dirty_machine', True)
+                # Provide coords for cleaning system: convert world to tile
+                tile_x = int(self.x // 16)
+                tile_y = int(self.y // 16)
+                setattr(npc, 'pending_cleaning_coords', (tile_x, tile_y))
+                setattr(npc, 'pending_cleaning_check', True)
+            except Exception:
+                pass
+            return False
         if super().start_interaction(npc):
             # Set fixed 5-second workout duration for all NPCs
             self.interaction_duration = 5.0

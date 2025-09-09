@@ -34,11 +34,23 @@ class FrontDesk(GymObject):
         return self.depth_y
     
     def start_interaction(self, npc):
-        if super().start_interaction(npc):
-            self.interaction_duration = 3.0
-            self._notify_pathfinding_update()
-            return True
+        # Front desk interactions are now manual only - this should not be called
         return False
+    
+    def end_interaction(self):
+        """End current interaction"""
+        # Notify the NPC that the interaction is complete
+        if self.occupying_npc and hasattr(self.occupying_npc, '_complete_gym_interaction'):
+            self.occupying_npc._complete_gym_interaction()
+        
+        # Queue advancement is now handled by QueueManager
+        self.occupied = False
+        self.occupying_npc = None
+        self.interaction_timer = 0
+        self.remove_state("in_use")
+        
+        # Notify pathfinding system that this object is now free
+        self._notify_pathfinding_update()
     
     def update(self, delta_time):
         # Check if the occupying NPC is departing - if so, end interaction immediately

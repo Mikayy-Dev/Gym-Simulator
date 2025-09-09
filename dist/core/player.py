@@ -49,6 +49,12 @@ class Player:
         
         # Dialogue system
         self.locked_in_dialogue = False
+        self.global_interruption_cooldown = 0  # Global cooldown to prevent multiple NPCs from interrupting
+        
+        # Skill levels
+        self.speed_level = 0
+        self.endurance_level = 0
+        self.management_level = 0
     
     def set_tilemap(self, tilemap):
         self.tilemap = tilemap
@@ -58,29 +64,88 @@ class Player:
     
     def update_stamina(self, delta_time):
         """Update stamina based on current state"""
-        if self.speed > self.base_speed:  # Sprinting
-            self.current_stamina = max(0, self.current_stamina - self.sprint_stamina_drain * delta_time)
+        if self.speed > self.get_walking_speed():  # Sprinting
+            # Endurance reduces stamina drain rate
+            drain_rate = self.sprint_stamina_drain * (1.0 - (self.endurance_level * 0.1))  # 10% reduction per level
+            self.current_stamina = max(0, self.current_stamina - drain_rate * delta_time)
         else:  # Not sprinting
-            self.current_stamina = min(self.max_stamina, self.current_stamina + self.stamina_regen_rate * delta_time)
+            self.current_stamina = min(self.get_max_stamina(), self.current_stamina + self.stamina_regen_rate * delta_time)
+    
+    def update_global_interruption_cooldown(self, delta_time):
+        """Update global interruption cooldown"""
+        if self.global_interruption_cooldown > 0:
+            self.global_interruption_cooldown -= delta_time
+            if self.global_interruption_cooldown <= 0:
+                pass
+    
+    def set_global_interruption_cooldown(self, duration):
+        """Set global interruption cooldown to prevent multiple NPCs from interrupting"""
+        self.global_interruption_cooldown = duration
+        pass
+    
+    def can_be_interrupted(self):
+        """Check if player can be interrupted by any NPC"""
+        return self.global_interruption_cooldown <= 0
+    
+    def get_max_stamina(self):
+        """Get maximum stamina including endurance bonus"""
+        return self.max_stamina + (self.endurance_level * 5)  # +5 stamina per endurance level
+    
+    def get_walking_speed(self):
+        """Get walking speed including speed bonus"""
+        return self.base_speed + (self.speed_level * 0.2)  # +0.2 speed per level
+    
+    def get_sprint_speed(self):
+        """Get sprint speed including speed bonus"""
+        base_sprint = self.get_walking_speed() * self.sprint_multiplier
+        return base_sprint + (self.speed_level * 0.3)  # Additional sprint bonus
+    
+    def update_skill_levels(self, speed_level, endurance_level, management_level):
+        """Update player skill levels"""
+        # Store old max stamina to maintain stamina percentage
+        old_max_stamina = self.get_max_stamina()
+        
+        self.speed_level = speed_level
+        self.endurance_level = endurance_level
+        self.management_level = management_level
+        
+        # Only adjust current stamina if max stamina actually changed (endurance level change)
+        new_max_stamina = self.get_max_stamina()
+        if old_max_stamina != new_max_stamina:
+            if old_max_stamina > 0 and new_max_stamina > 0:
+                stamina_percentage = self.current_stamina / old_max_stamina
+                self.current_stamina = min(new_max_stamina, stamina_percentage * new_max_stamina)
+            else:
+                # If max stamina is 0, set current to 0 as well
+                self.current_stamina = 0
     
     def draw_stamina_bar(self, screen, camera):
         """Draw stamina bar at bottom left of screen"""
         bar_width = 200
         bar_height = 20
         bar_x = 20
-        bar_y = screen.get_height() - 40
+        bar_y = screen.get_height() - 60
         
-        # Draw background bar
-        pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))
+        # Scale factors for overlay
+        scale_factor = 2
+        scaled_width = bar_width * scale_factor
+        scaled_height = bar_height * scale_factor
         
-        # Draw stamina bar
-        stamina_width = int((self.current_stamina / self.max_stamina) * bar_width)
+        # Draw stamina bar (scaled with padding)
+        max_stamina = self.get_max_stamina()
+        padding = 8  # Padding to make green bar fit inside overlay
+        stamina_width = int((self.current_stamina / max_stamina) * (scaled_width - padding * 2))
         if stamina_width > 0:
             color = (0, 255, 0)  # Always green
-            pygame.draw.rect(screen, color, (bar_x, bar_y, stamina_width, bar_height))
+            pygame.draw.rect(screen, color, (bar_x + padding, bar_y + padding, stamina_width, scaled_height - padding * 2))
         
-        # Draw border
-        pygame.draw.rect(screen, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), 2)
+        # Overlay stamina bar image
+        try:
+            stamina_bar_image = pygame.image.load("Graphics/stamina_bar.png")
+            stamina_bar_image = pygame.transform.scale(stamina_bar_image, (scaled_width, scaled_height))
+            screen.blit(stamina_bar_image, (bar_x, bar_y))
+        except pygame.error:
+            pass
     
 
     
@@ -99,9 +164,9 @@ class Player:
         
         # Update speed based on shift key and stamina
         if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) and self.current_stamina > 0:
-            self.speed = self.base_speed * self.sprint_multiplier
+            self.speed = self.get_sprint_speed()
         else:
-            self.speed = self.base_speed
+            self.speed = self.get_walking_speed()
             
         self.moving = False
         new_x = self.x

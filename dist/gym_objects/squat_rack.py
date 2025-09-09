@@ -72,6 +72,13 @@ class SquatRack(GymObject):
         return False
     
     def start_interaction(self, npc):
+        # If plates are on floor, block interaction and flag event
+        if len(self.plate_floor_sprites) > 0:
+            try:
+                setattr(npc, 'happiness_event_squat_plates_on_floor', True)
+            except Exception:
+                pass
+            return False
         if super().start_interaction(npc):
             #print(f"DEBUG: Squat rack interaction started with NPC {npc.npc_id}")
             self.interaction_duration = 5.0

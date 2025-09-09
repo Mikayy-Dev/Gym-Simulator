@@ -97,7 +97,11 @@ class AudioManager:
         if not self.is_muted and name in self.sound_effects:
             try:
                 sound = self.sound_effects[name]
-                sound.set_volume(self.sfx_volume)
+                # Special handling for scanner sound - make it much quieter
+                if name == "scanner":
+                    sound.set_volume(self.sfx_volume * 0.1)  # 10% of normal SFX volume
+                else:
+                    sound.set_volume(self.sfx_volume)
                 sound.play()
             except Exception as e:
                 pass

@@ -265,7 +265,10 @@ class DumbbellRack(GymObject):
             
             if not self.use_dumbbell():
                 # No dumbbells available, end interaction
-               
+                try:
+                    setattr(npc, 'happiness_event_dumbbell_empty', True)
+                except Exception:
+                    pass
                 super().end_interaction()
                 return False
         
@@ -407,15 +410,21 @@ class DumbbellRack(GymObject):
     def pickup_floor_dumbbells(self, mouse_x, mouse_y, camera, player, tilemap=None):
         """Pick up dumbbells from floor when right-clicked"""
         
+        print(f"DEBUG: pickup_floor_dumbbells called - mouse({mouse_x},{mouse_y}), floor_sprites: {len(self.dumbbell_floor_sprites)}")
+        
         # Check if player is within range (if tilemap is provided)
         if tilemap:
             world_x, world_y = camera.reverse_apply_pos(mouse_x, mouse_y)
             tile_x = int(world_x // 16)
             tile_y = int(world_y // 16)
             
+            print(f"DEBUG: World coords: ({world_x},{world_y}), tile: ({tile_x},{tile_y})")
+            
             if not tilemap.is_within_player_range(tile_x, tile_y):
+                print("DEBUG: Player not in range for dumbbell pickup")
                 return False  # Player not in range
         for npc_id, floor_data in list(self.dumbbell_floor_sprites.items()):
+            print(f"DEBUG: Checking floor sprite {npc_id} at world({floor_data['x']},{floor_data['y']})")
             # Convert world coordinates to screen coordinates
             screen_x, screen_y = camera.apply_pos(floor_data['x'], floor_data['y'])
             
@@ -432,10 +441,13 @@ class DumbbellRack(GymObject):
             sprite_right = sprite_left + sprite_width
             sprite_bottom = sprite_top + sprite_height
             
+            print(f"DEBUG: Sprite bounds - left:{sprite_left}, right:{sprite_right}, top:{sprite_top}, bottom:{sprite_bottom}")
+            print(f"DEBUG: Mouse position - x:{mouse_x}, y:{mouse_y}")
+            
             # Check if mouse is within sprite bounds
             if (sprite_left <= mouse_x <= sprite_right and 
                 sprite_top <= mouse_y <= sprite_bottom):
-                
+                print("DEBUG: Mouse is within sprite bounds! Attempting pickup...")
                 
                 # Calculate how many dumbbells to pick up (in 2s: 2, 4, 6, etc.)
                 current_count = floor_data['count']

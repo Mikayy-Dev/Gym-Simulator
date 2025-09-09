@@ -214,35 +214,53 @@ class GymObjectManager:
                 pass
     
     def is_mouse_over_floor_dumbbells(self, mouse_x, mouse_y, camera):
-        """Check if mouse is hovering over any floor dumbbell sprites across all dumbbell racks"""
-        for pos, obj in self.gym_objects.items():
-            if hasattr(obj, 'is_mouse_over_floor_dumbbells'):
-                if obj.is_mouse_over_floor_dumbbells(mouse_x, mouse_y, camera):
-                    return True
+        """Check if mouse is hovering over floor dumbbell sprites on the specific dumbbell rack under mouse"""
+        # First find the specific object under the mouse cursor
+        target_obj = self.get_object_at_mouse_position(mouse_x, mouse_y, camera)
+        
+        # Only check floor dumbbells on the object under the mouse cursor
+        if target_obj and hasattr(target_obj, 'is_mouse_over_floor_dumbbells'):
+            return target_obj.is_mouse_over_floor_dumbbells(mouse_x, mouse_y, camera)
+        
         return False
     
     def pickup_floor_dumbbells(self, mouse_x, mouse_y, camera, player, tilemap=None):
-        """Pick up dumbbells from floor when right-clicked across all dumbbell racks"""
+        """Pick up dumbbells from floor when right-clicked on the specific dumbbell rack under mouse"""
+        # First find the specific object under the mouse cursor
+        target_obj = self.get_object_at_mouse_position(mouse_x, mouse_y, camera)
+        
+        # Try the object under the mouse cursor first
+        if target_obj and hasattr(target_obj, 'pickup_floor_dumbbells'):
+            return target_obj.pickup_floor_dumbbells(mouse_x, mouse_y, camera, player, tilemap)
+        
+        # If no object under mouse or no pickup method, check all dumbbell racks
         for pos, obj in self.gym_objects.items():
             if hasattr(obj, 'pickup_floor_dumbbells'):
                 if obj.pickup_floor_dumbbells(mouse_x, mouse_y, camera, player, tilemap):
                     return True
+        
         return False
     
     def is_mouse_over_floor_plates(self, mouse_x, mouse_y, camera):
-        """Check if mouse is hovering over any floor plate sprites across all squat racks"""
-        for pos, obj in self.gym_objects.items():
-            if hasattr(obj, 'is_mouse_over_floor_plates'):
-                if obj.is_mouse_over_floor_plates(mouse_x, mouse_y, camera):
-                    return True
+        """Check if mouse is hovering over floor plate sprites on the specific squat rack under mouse"""
+        # First find the specific object under the mouse cursor
+        target_obj = self.get_object_at_mouse_position(mouse_x, mouse_y, camera)
+        
+        # Only check floor plates on the object under the mouse cursor
+        if target_obj and hasattr(target_obj, 'is_mouse_over_floor_plates'):
+            return target_obj.is_mouse_over_floor_plates(mouse_x, mouse_y, camera)
+        
         return False
     
     def pickup_floor_plates(self, mouse_x, mouse_y, camera, player, tilemap=None):
-        """Pick up weight plates from floor when right-clicked across all squat racks"""
-        for pos, obj in self.gym_objects.items():
-            if hasattr(obj, 'pickup_floor_plates'):
-                if obj.pickup_floor_plates(mouse_x, mouse_y, camera, player, tilemap):
-                    return True
+        """Pick up weight plates from floor when right-clicked on the specific squat rack under mouse"""
+        # First find the specific object under the mouse cursor
+        target_obj = self.get_object_at_mouse_position(mouse_x, mouse_y, camera)
+        
+        # Only try to pick up plates from the object under the mouse cursor
+        if target_obj and hasattr(target_obj, 'pickup_floor_plates'):
+            return target_obj.pickup_floor_plates(mouse_x, mouse_y, camera, player, tilemap)
+        
         return False
     
     def get_object_at_mouse_position(self, mouse_x, mouse_y, camera):

@@ -87,11 +87,12 @@ class DialogueManager:
         self.talking_npc = npc
         npc.is_talking = True
         npc.locked_in_dialogue = True
-        print(f"DEBUG: NPC {npc.npc_id} locked in dialogue")
         
         # Lock player and NPC in place
         if self.player:
             self.player.locked_in_dialogue = True
+            # Set global interruption cooldown to prevent other NPCs from interrupting
+            self.player.set_global_interruption_cooldown(45)
         
         return True
     
@@ -109,7 +110,6 @@ class DialogueManager:
             self.talking_npc.locked_in_dialogue = False
             self.talking_npc.talk_cooldown = self.talking_npc.talk_cooldown_duration
             self.talking_npc.dialogue_cooldown = self.talking_npc.dialogue_cooldown_duration
-            print(f"DEBUG: NPC {self.talking_npc.npc_id} unlocked from dialogue (45s cooldown)")
         
         self.active_dialogue = None
         self.talking_npc = None
@@ -167,15 +167,17 @@ class DialogueManager:
         
         if event.type == pygame.KEYDOWN:
             # Only handle specific dialogue keys
-            if event.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_ESCAPE]:
+            if event.key in [pygame.K_1, pygame.K_2, pygame.K_3]:
                 if event.key == pygame.K_1:
                     self.select_response(0)
                 elif event.key == pygame.K_2:
                     self.select_response(1)
                 elif event.key == pygame.K_3:
                     self.select_response(2)
-                elif event.key == pygame.K_ESCAPE:
-                    self.end_dialogue()
                 return True
+            elif event.key == pygame.K_ESCAPE:
+                # ESC ends dialogue but doesn't consume the event
+                self.end_dialogue()
+                return False  # Let the game handle ESC for pause
         
         return False

@@ -1,101 +1,97 @@
 """
 NPC Wave Manager
-Handles dynamic NPC spawning based on time waves
+Handles burst-based NPC spawning system
 """
 
 import random
 
 class NPCWaveManager:
-    """Manages NPC spawning waves based on game time"""
+    """Manages NPC spawning with burst pattern: 30 seconds active every 90 seconds"""
     
     def __init__(self, game_clock=None):
         self.game_clock = game_clock
-        self.waves = {
-            "early_morning": {
-                "start_hour": 5,
-                "end_hour": 7,
-                "spawn_interval": 20,  # seconds between spawns
-                "spawn_count_range": (1, 2),  # Random range of NPCs to spawn
-                "spawned_count": 0,
-                "last_spawn_time": 0
-            },
-            "afternoon": {
-                "start_hour": 13,
-                "end_hour": 18,
-                "spawn_interval": 20,  # seconds between spawns
-                "spawn_count_range": (1, 2),  # Random range of NPCs to spawn
-                "spawned_count": 0,
-                "last_spawn_time": 0
-            },
-            "evening": {
-                "start_hour": 21,
-                "end_hour": 23,
-                "spawn_interval": 20,  # seconds between spawns
-                "spawn_count_range": (1, 2),  # Random range of NPCs to spawn
-                "spawned_count": 0,
-                "last_spawn_time": 0
-            }
+        
+        # Peak time configuration (early morning, afternoon, evening)
+        self.peak_spawn_interval = 60.0  # 60 seconds between spawn chances
+        self.peak_spawn_cooldown = 10.0  # 10 seconds between individual NPC spawns
+        self.peak_spawns_per_cycle = 3   # 3 spawn chances per cycle
+        self.peak_npcs_per_spawn = (1, 2)  # 1-2 NPCs per spawn chance
+        
+        # Non-peak time configuration
+        self.non_peak_spawn_interval = 90.0  # 90 seconds between spawn chances
+        self.non_peak_spawn_cooldown = 15.0  # 15 seconds between individual NPC spawns
+        self.non_peak_spawns_per_cycle = 2   # 2 spawn chances per cycle
+        self.non_peak_npcs_per_spawn = (1, 2)  # 1-2 NPCs per spawn chance
+        
+        # Peak time hours
+        self.peak_hours = {
+            "early_morning": (5, 7),    # 5-7 AM
+            "afternoon": (13, 18),      # 1-6 PM
+            "evening": (21, 23)         # 9-11 PM
         }
-        self.total_npcs_spawned = 0
+        
+        # State tracking
+        self.last_spawn_time = -30.0  # Start with negative value so first spawn triggers immediately
+        self.spawns_this_cycle = 0
+        self.cycle_start_time = 0.0
+        
+        # Overall limits
         self.max_total_npcs = 20  # Maximum NPCs in the gym at once
+        self.total_npcs_spawned = 0
         
-    def get_current_wave(self):
-        """Get the current wave based on game time"""
-        if not self.game_clock:
-            return None, None
-            
-        current_hour = self.game_clock.current_hour
-        
-        for wave_name, wave_data in self.waves.items():
-            if wave_data["start_hour"] <= current_hour < wave_data["end_hour"]:
-                return wave_name, wave_data
-        
-        return None, None
-    
-    def is_in_between_time(self):
-        """Check if current time is in between active wave periods"""
+    def is_peak_time(self):
+        """Check if current time is during peak hours"""
         if not self.game_clock:
             return False
             
         current_hour = self.game_clock.current_hour
-        # In-between times: 9am-1pm, 6pm-9pm, 11pm-5am
-        return (9 <= current_hour < 13) or (18 <= current_hour < 21) or (current_hour >= 23 or current_hour < 5)
+        
+        for wave_name, (start_hour, end_hour) in self.peak_hours.items():
+            if start_hour <= current_hour < end_hour:
+                return True
+        return False
     
     def should_spawn_npc(self, current_time, npc_count):
-        """Check if we should spawn NPCs"""
+        """Check if we should spawn NPCs using 6-spawn cycle pattern"""
         if npc_count >= self.max_total_npcs:
             return False, 0
-            
-        wave_name, wave_data = self.get_current_wave()
         
-        # Check if we're in an active wave period
-        if wave_data:
-            # Special check for early morning wave - don't start until 5:05 AM
-            if wave_name == "early_morning":
-                # This would need game clock integration
-                pass
-            
-            # Check if enough time has passed since last spawn
-            if current_time - wave_data["last_spawn_time"] >= wave_data["spawn_interval"]:
-                # Random spawn count between 1-4
-                spawn_count = random.randint(wave_data["spawn_count_range"][0], wave_data["spawn_count_range"][1])
-                return True, spawn_count
-        # Check if we're in between times with 50% chance
-        elif self.is_in_between_time():
-            if random.random() < 0.5:  # 50% chance
-                # Random spawn count between 1-4
-                spawn_count = random.randint(1, 4)
-                return True, spawn_count
-                
+        is_peak = self.is_peak_time()
+        
+        # Determine spawn configuration based on peak/non-peak
+        if is_peak:
+            spawn_interval = self.peak_spawn_interval
+            spawn_cooldown = self.peak_spawn_cooldown
+            spawns_per_cycle = self.peak_spawns_per_cycle
+            npcs_per_spawn = self.peak_npcs_per_spawn
+        else:
+            spawn_interval = self.non_peak_spawn_interval
+            spawn_cooldown = self.non_peak_spawn_cooldown
+            spawns_per_cycle = self.non_peak_spawns_per_cycle
+            npcs_per_spawn = self.non_peak_npcs_per_spawn
+        
+        # Check if we need to start a new cycle
+        if self.spawns_this_cycle >= spawns_per_cycle:
+            # Reset cycle
+            self.spawns_this_cycle = 0
+            self.cycle_start_time = current_time
+        
+        # Check if enough time has passed since last spawn
+        if current_time - self.last_spawn_time >= spawn_cooldown:
+            # Check if we're within the spawn interval for this cycle
+            if self.spawns_this_cycle < spawns_per_cycle:
+                # Random spawn count between min and max
+                max_possible_spawns = min(npcs_per_spawn[1], self.max_total_npcs - npc_count)
+                if max_possible_spawns > 0:
+                    spawn_count = random.randint(npcs_per_spawn[0], max_possible_spawns)
+                    return True, spawn_count
+        
         return False, 0
     
     def spawn_npcs(self, current_time, spawn_count):
-        """Spawn multiple NPCs and update wave data"""
-        wave_name, wave_data = self.get_current_wave()
-        
-        # Update wave data if we're in an active wave
-        if wave_data:
-            wave_data["last_spawn_time"] = current_time
+        """Spawn NPCs and update cycle data"""
+        self.spawns_this_cycle += 1
+        self.last_spawn_time = current_time
         
         # Update total count
         self.total_npcs_spawned += spawn_count
@@ -103,7 +99,8 @@ class NPCWaveManager:
         return True
     
     def reset_wave_counts(self):
-        """Reset spawn counts for all waves (call at start of new day)"""
-        for wave_data in self.waves.values():
-            wave_data["spawned_count"] = 0
+        """Reset spawn cycle state (call at start of new day)"""
+        self.last_spawn_time = -30.0  # Reset to trigger immediate spawning
+        self.spawns_this_cycle = 0
+        self.cycle_start_time = 0.0
         self.total_npcs_spawned = 0

@@ -19,7 +19,7 @@ class TitleScreen:
             self.font_medium = pygame.font.Font(None, 24)
             self.font_small = pygame.font.Font(None, 16)
         
-        self.options = ["Start Game", "Quit"]
+        self.options = ["Start Game", "Settings", "Quit"]
         self.option_positions = []
         self.hovered_option = None
         

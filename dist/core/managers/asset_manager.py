@@ -44,15 +44,13 @@ class AssetManager:
                 cursor_img = pygame.transform.scale(cursor_img, (24, 24))
                 self.textures[f'cursor_{i}'] = cursor_img
             except Exception as e:
-                print(f"Warning: Could not load cursor {cursor_file}: {e}")
+                pass
     
     def _load_sound_effects(self):
         """Load sound effects"""
         sound_files = {
             "spray_bottle": "Audio/Spray Bottle - Sound Effect (HD).mp3",
             "machine_shutdown": "Audio/machine shutdown.mp3",
-            "star_full": "Audio/ronnie_coleman.wav",
-            "all_stars_full": "Audio/Woohoo!.wav",
             "title_music": "Audio/title_screen.mp3",
             "dumbbell": "Audio/dumbbell.mp3",
             "squat_rerack": "Audio/squat_rerack.wav",
@@ -65,7 +63,7 @@ class AssetManager:
                     sound = pygame.mixer.Sound(path)
                     self.sounds[name] = sound
             except Exception as e:
-                print(f"Warning: Could not load sound {name}: {e}")
+                pass
     
     def get_texture(self, name: str) -> pygame.Surface:
         """Get a texture by name"""
@@ -86,7 +84,7 @@ class AssetManager:
             self.textures[name] = texture
             return True
         except Exception as e:
-            print(f"Error loading texture {name}: {e}")
+            pass
             return False
     
     def load_sound(self, name: str, path: str) -> bool:
@@ -96,5 +94,5 @@ class AssetManager:
             self.sounds[name] = sound
             return True
         except Exception as e:
-            print(f"Error loading sound {name}: {e}")
+            pass
             return False

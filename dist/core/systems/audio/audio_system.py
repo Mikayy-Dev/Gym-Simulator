@@ -18,8 +18,6 @@ class AudioSystem:
         # Load sound effects
         self.audio_manager.load_sound_effect("spray_bottle", "Audio/spray.mp3")
         self.audio_manager.load_sound_effect("machine shutdown", "Audio/machine shutdown.mp3")
-        self.audio_manager.load_sound_effect("star_full", "Audio/ronnie_coleman.wav")
-        self.audio_manager.load_sound_effect("all_stars_full", "Audio/Woohoo!.wav")
         self.audio_manager.load_sound_effect("title_music", "Audio/title_screen.mp3")
         self.audio_manager.load_sound_effect("dumbbell", "Audio/dumbbell.mp3")
         self.audio_manager.load_sound_effect("squat_rerack", "Audio/squat_rerack.wav")
@@ -27,7 +25,6 @@ class AudioSystem:
         
         # Set initial volume
         self.audio_manager.set_sfx_volume(0.3)
-        self.audio_manager.play_sound_effect("title_music")
     
     def update(self, delta_time: float):
         """Update audio system"""

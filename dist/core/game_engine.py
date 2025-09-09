@@ -26,11 +26,15 @@ class GameEngine:
         self.running = True
         self.delta_time = 0.0
         
+        # Settings
+        self.show_fps = False
+        self.debug_mode = False
+        
         # Initialize core systems
         self.asset_manager = AssetManager()
         self.entity_manager = EntityManager()
         self.audio_system = AudioSystem()
-        self.state_manager = StateManager(self.audio_system)
+        self.state_manager = StateManager(self.audio_system, self)
         
         # Initialize game systems
         self.input_system = InputSystem()
@@ -40,7 +44,7 @@ class GameEngine:
         self._setup_cursors()
         
         # Initialize game state
-        self.state_manager.change_state("title")
+        self.state_manager.change_state("cutscene")
     
     def _setup_cursors(self):
         """Set up custom cursors for the game"""
@@ -88,24 +92,20 @@ class GameEngine:
             
             # Update display
             pygame.display.flip()
-            self.clock.tick(FPS)
+            
+            # Use different FPS for cutscene vs game
+            current_state = self.state_manager.get_current_state()
+            if current_state == "cutscene":
+                self.clock.tick(30)  # 30 FPS for cutscene
+            else:
+                self.clock.tick(FPS)  # 60 FPS for game
     
     def _handle_events(self, events):
         """Handle pygame events"""
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    self._handle_escape_key()
     
-    def _handle_escape_key(self):
-        """Handle escape key based on current state"""
-        current_state = self.state_manager.get_current_state()
-        if current_state == "game":
-            self.state_manager.change_state("title")
-        elif current_state == "title":
-            self.running = False
     
     def _update_systems(self, events):
         """Update all game systems"""
@@ -114,6 +114,10 @@ class GameEngine:
         
         # Update current state
         self.state_manager.update(self.delta_time, events)
+        
+        # Check for quit action from state manager
+        if hasattr(self.state_manager, 'should_quit') and self.state_manager.should_quit:
+            self.running = False
         
         # Update entity manager
         self.entity_manager.update(self.delta_time)
@@ -129,7 +133,12 @@ class GameEngine:
         # Render current state
         self.state_manager.draw(self.screen)
         
-        # Draw custom cursor if enabled
+        # Draw FPS if enabled
+        if self.show_fps:
+            self._draw_fps()
+        
+        # Always draw custom cursor and hide default cursor
+        pygame.mouse.set_visible(False)
         if self.custom_cursor:
             self._draw_custom_cursor()
     
@@ -166,6 +175,18 @@ class GameEngine:
         
         cursor_index = cursor_mapping.get(cursor_type, 0)
         return self.cursor_images.get(cursor_index, self.cursor_images[0])
+    
+    def _draw_fps(self):
+        """Draw FPS counter on screen"""
+        try:
+            fps_font = pygame.font.Font("Font/Retro Gaming.ttf", 24)
+        except:
+            fps_font = pygame.font.Font(None, 24)
+        
+        fps_text = fps_font.render(f"FPS: {int(self.clock.get_fps())}", True, (255, 255, 255))
+        fps_rect = fps_text.get_rect()
+        fps_rect.topright = (self.screen.get_width() - 20, 80)  # 30 pixels below the NPC counter
+        self.screen.blit(fps_text, fps_rect)
     
     def quit(self):
         """Clean shutdown of the game engine"""
