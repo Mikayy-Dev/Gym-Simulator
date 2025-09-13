@@ -1,11 +1,4 @@
-<<<<<<< HEAD
-# Gym Sim
-=======
-# Gym-Simulator v0.2
-=======
-# Gym-Simulator v0.4
->>>>>>> 04c6256b35c247dc345e0c2ffd23886fdff7284b
-
+## Version 0.5
 A gym management simulation game where you run a fitness center and keep your customers happy!
 
 ## Overview
