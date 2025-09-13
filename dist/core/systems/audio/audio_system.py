@@ -22,6 +22,7 @@ class AudioSystem:
         self.audio_manager.load_sound_effect("dumbbell", "Audio/dumbbell.mp3")
         self.audio_manager.load_sound_effect("squat_rerack", "Audio/squat_rerack.wav")
         self.audio_manager.load_sound_effect("scanner", "Audio/scanner.mp3")
+        self.audio_manager.load_sound_effect("countdown", "Audio/countdown.mp3")
         
         # Set initial volume
         self.audio_manager.set_sfx_volume(0.3)
@@ -42,6 +43,14 @@ class AudioSystem:
     def stop_background_music(self):
         """Stop background music"""
         self.audio_manager.stop_background_music()
+    
+    def pause_background_music(self):
+        """Pause background music"""
+        self.audio_manager.pause_background_music()
+    
+    def unpause_background_music(self):
+        """Unpause background music"""
+        self.audio_manager.unpause_background_music()
     
     def set_volume(self, volume: float):
         """Set sound effects volume"""

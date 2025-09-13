@@ -13,7 +13,7 @@ class ProgressBar:
         self.is_charging = False  # Whether player is currently doing tasks
         self.last_activity_time = 0
         self.activity_timeout = 2000  # 2 seconds of inactivity before decay starts
-        self.base_charge_rate = 2.0  # Base charge rate (reduced from 6.0)
+        self.base_charge_rate = 3.0  # Base charge rate (reduced from 6.0)
         self.base_decay_rate = 1.0  # Base decay rate (reduced from 2.0)
         self.charge_rate = self.base_charge_rate  # Current charge rate
         self.decay_rate = self.base_decay_rate  # Current decay rate
@@ -169,3 +169,13 @@ class ProgressBar:
     def set_upgrade_point_manager(self, upgrade_point_manager):
         """Set the upgrade point manager to award points to"""
         self.upgrade_point_manager = upgrade_point_manager
+    
+    def reset(self):
+        """Reset the progress bar to initial state"""
+        self.current_progress = 0
+        self.level = 1
+        self.max_progress = self.base_requirement
+        self.is_charging = False
+        self.last_activity_time = 0
+        self.charge_rate = self.base_charge_rate
+        self.decay_rate = self.base_decay_rate

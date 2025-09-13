@@ -10,8 +10,9 @@ from ..constants import *
 class PauseScreenState(BaseScreenState):
     """Handles the pause menu screen"""
     
-    def __init__(self):
+    def __init__(self, audio_system=None):
         super().__init__()
+        self.audio_system = audio_system
         self.selected_option = 0
         self.options = ["Resume", "Settings", "Back to Title"]
         self.font = None
@@ -32,6 +33,10 @@ class PauseScreenState(BaseScreenState):
         self.background_surface.set_alpha(128)
         self.background_surface.fill((0, 0, 0))
         pygame.mouse.set_visible(False)
+        
+        # Pause background music when entering pause screen
+        if self.audio_system:
+            self.audio_system.pause_background_music()
     
     def exit(self):
         """Called when exiting the pause state"""

@@ -162,3 +162,8 @@ class QueueManager:
     def get_npc_queue_position(self, npc):
         """Get an NPC's position in the queue"""
         return self.queue.index(npc) if npc in self.queue else -1
+    
+    def reset(self):
+        """Reset the queue to empty state"""
+        self.queue.clear()
+        self.npc_positions.clear()

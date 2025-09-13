@@ -134,6 +134,12 @@ class GymObjectManager:
                 elif tile_id == 6:  # Trashcan
                     self.add_gym_object(world_x, world_y, "trashcan")
     
+    def reset_all_objects(self):
+        """Reset all gym objects to their initial state"""
+        for obj in self.gym_objects.values():
+            if hasattr(obj, 'reset'):
+                obj.reset()
+    
     def get_tiles_needing_interaction(self):
         """Get list of tile coordinates that need player interaction"""
         tiles_needing_interaction = []

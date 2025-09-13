@@ -16,6 +16,7 @@ from dialogue import DialogueManager, DialogueUI
 from ..skill_points_inventory import SkillPointsInventory
 from ..npc_happiness import NPCHappinessManager
 from ..queue_manager import QueueManager
+from ..task_tracker import TaskTracker
 
 class GameScreenState(BaseScreenState):
     """Handles the main game screen"""
@@ -60,12 +61,28 @@ class GameScreenState(BaseScreenState):
         # Queue management system
         self.queue_manager = None
         
+        # Task tracking system
+        self.task_tracker = None
+        
         # Time overlay image
         self.time_overlay_image = None
+        
+        # Countdown timer (5 minutes)
+        self.countdown_timer = 300.0
+        
+        # Pre-game countdown overlay
+        self.countdown_overlay_active = True
+        self.countdown_overlay_timer = 0.0
+        self.countdown_phases = [3, 2, 1, 0]  # 0 represents "GO!"
+        self.current_countdown_phase = 0
+        self.countdown_phase_duration = 1.0  # 1 second per phase
+        self.countdown_sound_played = False
         
     def enter(self):
         """Called when entering the game state"""
         if not self.initialized:
+            # Only reset when starting a completely new game (not from pause)
+            self.reset_game_state()
             self._initialize_game()
         pygame.mouse.set_visible(False)
         # Ensure debug skill points are synced on enter
@@ -75,10 +92,49 @@ class GameScreenState(BaseScreenState):
         """Called when exiting the game state"""
         pygame.mouse.set_visible(True)
     
+    def reset_game_state(self):
+        """Reset the game state to initial values for a fresh start"""
+        # Reset basic state variables first
+        self.npcs = []
+        self.countdown_timer = 150.0
+        self.countdown_overlay_active = True
+        self.countdown_overlay_timer = 0.0
+        self.current_countdown_phase = 0
+        self.countdown_sound_played = False
+        self._debug_points_applied = False
+        self._debug_points_baseline = None
+        
+        # Reset components if they exist
+        if self.progress_bar:
+            self.progress_bar.reset()
+        
+        if self.upgrade_point_manager:
+            self.upgrade_point_manager.set_points(0)
+        
+        if self.npc_happiness:
+            self.npc_happiness.reset_happiness()
+        
+        if self.queue_manager:
+            self.queue_manager.reset()
+        
+        if self.task_tracker:
+            self.task_tracker.reset()
+        
+        if self.gym_manager:
+            self.gym_manager.reset_all_objects()
+        
+        # Mark as needing re-initialization
+        self.initialized = False
+    
+    def force_reset_and_enter(self):
+        """Force a complete reset and enter the game state (for new games)"""
+        self.reset_game_state()
+        self.enter()
+    
     def _initialize_game(self):
         """Initialize all game components"""
         # Initialize player
-        self.player = Player(320, 208)
+        self.player = Player(150, 220)
         
         # Initialize camera
         self.camera = Camera(1280, 720)
@@ -153,6 +209,9 @@ class GameScreenState(BaseScreenState):
             # Fallback to hardcoded position if no front desk found
             self.queue_manager = QueueManager((8, 10))  # Default front desk position
         
+        # Initialize task tracker
+        self.task_tracker = TaskTracker()
+        
         # Load time overlay image
         try:
             self.time_overlay_image = pygame.image.load("Graphics/time_overlay.png")
@@ -193,6 +252,29 @@ class GameScreenState(BaseScreenState):
         if self.skill_inventory and self.skill_inventory.game_paused:
             return None  # Skip game updates when paused
         
+        # Update countdown overlay
+        if self.countdown_overlay_active:
+            # Play countdown sound effect once when countdown starts
+            if not self.countdown_sound_played and self.audio_system:
+                self.audio_system.play_sound("countdown")
+                self.countdown_sound_played = True
+            
+            self.countdown_overlay_timer += delta_time
+            if self.countdown_overlay_timer >= self.countdown_phase_duration:
+                self.countdown_overlay_timer = 0.0
+                self.current_countdown_phase += 1
+                if self.current_countdown_phase >= len(self.countdown_phases):
+                    self.countdown_overlay_active = False
+                    # Start background music when countdown is complete
+                    if self.audio_system:
+                        self.audio_system.play_background_music(loop=True)
+            
+            # Center camera on player during countdown
+            if self.camera and self.player:
+                self.camera.follow(self.player)
+            
+            return None  # Skip game updates during countdown
+        
         # Update game components
         self._update_game_components(delta_time)
 
@@ -228,6 +310,25 @@ class GameScreenState(BaseScreenState):
         # Update progress bar
         if self.progress_bar:
             self.progress_bar.update(delta_time)
+        
+        # Update countdown timer
+        if self.countdown_timer > 0:
+            self.countdown_timer -= delta_time
+            if self.countdown_timer < 0:
+                self.countdown_timer = 0
+        
+        # Update task tracker time
+        if self.task_tracker:
+            self.task_tracker.track_stat("time_played", 150.0 - self.countdown_timer)
+        
+        # Check if timer ran out - trigger evaluation screen
+        if self.countdown_timer <= 0:
+            # Add a brief transition effect before switching
+            return "Evaluation"
+        
+        # Check if happiness reached 0 - trigger fired screen
+        if hasattr(self, 'npc_happiness') and self.npc_happiness and self.npc_happiness.current_happiness <= 0:
+            return "Fired"
         
         return None
     
@@ -408,6 +509,10 @@ class GameScreenState(BaseScreenState):
                 if hasattr(obj, 'return_dumbbells_to_rack'):
                     success, message = obj.return_dumbbells_to_rack(self.player)
                     if success:
+                        # Track task
+                        if self.task_tracker:
+                            self.task_tracker.track_task("dumbbells_returned")
+                        
                         # Play dumbbell sound effect
                         if self.audio_system:
                             self.audio_system.play_sound("dumbbell")
@@ -420,6 +525,10 @@ class GameScreenState(BaseScreenState):
                 if hasattr(obj, 'return_plates_to_rack') and self.player.weight_plate_count > 0:
                     success, message = obj.return_plates_to_rack(self.player)
                     if success:
+                        # Track task
+                        if self.task_tracker:
+                            self.task_tracker.track_task("weight_plates_returned")
+                        
                         # Play squat rerack sound effect
                         if self.audio_system:
                             self.audio_system.play_sound("squat_rerack")
@@ -440,6 +549,11 @@ class GameScreenState(BaseScreenState):
             self.tilemap.is_within_player_range(tile_x, tile_y)):
             # Use QueueManager to check in the NPC
             if self.queue_manager and self.queue_manager.check_in_npc(clicked_npc):
+                # Track task
+                if self.task_tracker:
+                    self.task_tracker.track_task("npcs_checked_in")
+                    self.task_tracker.track_stat("total_npcs_served")
+                
                 # Check-in successful
                 # Play scanner sound effect
                 if self.audio_system:
@@ -456,6 +570,10 @@ class GameScreenState(BaseScreenState):
         # Then check if clicking on floor dumbbells (within range)
         elif (self.tilemap.is_within_player_range(tile_x, tile_y) and 
               self.gym_manager.pickup_floor_dumbbells(mouse_x, mouse_y, self.camera, self.player, self.tilemap)):
+            # Track task
+            if self.task_tracker:
+                self.task_tracker.track_task("floor_dumbbells_picked_up")
+            
             # Successfully picked up dumbbells
             print("DEBUG: Successfully picked up dumbbells!")
             if self.progress_bar:
@@ -479,6 +597,10 @@ class GameScreenState(BaseScreenState):
                 # Check if clicking on floor plates (only when actually on the squat rack)
                 if hasattr(obj, 'is_mouse_over_floor_plates') and obj.is_mouse_over_floor_plates(mouse_x, mouse_y, self.camera):
                     if self.gym_manager.pickup_floor_plates(mouse_x, mouse_y, self.camera, self.player, self.tilemap):
+                        # Track task
+                        if self.task_tracker:
+                            self.task_tracker.track_task("floor_plates_picked_up")
+                        
                         # Successfully picked up plates - trigger happiness bonus
                         if self.npc_happiness:
                             self.npc_happiness.on_weights_organized()
@@ -488,6 +610,9 @@ class GameScreenState(BaseScreenState):
                 # Check for other gym object interactions
                 elif hasattr(obj, 'interact'):
                     obj.interact(self.player)
+                    # Track task
+                    if self.task_tracker:
+                        self.task_tracker.track_task("gym_objects_interacted")
                     # Start charging for gym object interaction
                     if self.progress_bar:
                         self.progress_bar.start_charging()
@@ -498,6 +623,9 @@ class GameScreenState(BaseScreenState):
                         self.audio_system.play_sound("spray_bottle")
                     if hasattr(obj, 'start_cleaning'):
                         obj.start_cleaning()
+                        # Track task
+                        if self.task_tracker:
+                            self.task_tracker.track_task("machines_cleaned")
                         # Trigger happiness bonus for cleaning
                         if self.npc_happiness:
                             self.npc_happiness.on_machine_cleaned()
@@ -510,6 +638,9 @@ class GameScreenState(BaseScreenState):
                     if self.audio_system:
                         self.audio_system.play_sound("machine shutdown")
                     obj.turn_off()
+                    # Track task
+                    if self.task_tracker:
+                        self.task_tracker.track_task("equipment_turned_off")
                     # Trigger happiness bonus for turning off treadmill
                     if self.npc_happiness:
                         self.npc_happiness.on_treadmill_turned_off()
@@ -650,6 +781,42 @@ class GameScreenState(BaseScreenState):
         # Draw stamina bar (hidden during dialogue)
         if self.player and not dialogue_active:
             self.player.draw_stamina_bar(screen, self.camera)
+        
+        # Draw countdown overlay
+        if self.countdown_overlay_active:
+            self._draw_countdown_overlay(screen)
+    
+    def _draw_countdown_overlay(self, screen):
+        """Draw the pre-game countdown overlay"""
+        # Create a semi-transparent overlay
+        overlay = pygame.Surface(screen.get_size())
+        overlay.set_alpha(128)
+        overlay.fill((0, 0, 0))
+        screen.blit(overlay, (0, 0))
+        
+        # Get the current countdown text
+        if self.current_countdown_phase < len(self.countdown_phases):
+            countdown_value = self.countdown_phases[self.current_countdown_phase]
+            if countdown_value == 0:
+                countdown_text = "GO!"
+            else:
+                countdown_text = f"{countdown_value}!"
+        else:
+            countdown_text = "GO!"
+        
+        # Create large font for countdown
+        try:
+            countdown_font = pygame.font.Font("Font/Retro Gaming.ttf", 120)
+        except:
+            countdown_font = pygame.font.Font(None, 120)
+        
+        # Render countdown text
+        text_surface = countdown_font.render(countdown_text, True, (255, 255, 255))
+        text_rect = text_surface.get_rect()
+        text_rect.center = (screen.get_width() // 2, screen.get_height() // 2)
+        
+        # Draw countdown text
+        screen.blit(text_surface, text_rect)
     
     def _draw_floor_sprites(self, screen):
         """Draw floor sprites (dropped items) for all gym objects"""
@@ -713,9 +880,9 @@ class GameScreenState(BaseScreenState):
             screen.blit(scaled_overlay, overlay_rect)
         
         try:
-            clock_font = pygame.font.Font("Font/Retro Gaming.ttf", 18)
+            clock_font = pygame.font.Font("Font/Retro Gaming.ttf", 14)
         except:
-            clock_font = pygame.font.Font(None, 18)
+            clock_font = pygame.font.Font(None, 14)
         
         # Position text within the scaled overlay
         if self.time_overlay_image:
@@ -739,6 +906,13 @@ class GameScreenState(BaseScreenState):
         npc_count_rect.centerx = text_x
         npc_count_rect.centery = text_y + 30  # 30 pixels below the clock text
         screen.blit(npc_count_text, npc_count_rect)
+        
+        # Draw countdown timer underneath the NPC count
+        countdown_text = clock_font.render(f"TIME {self.countdown_timer:.1f}s", True, (255, 255, 255))
+        countdown_rect = countdown_text.get_rect()
+        countdown_rect.centerx = text_x
+        countdown_rect.centery = text_y + 60  # 60 pixels below the clock text (30 below NPC count)
+        screen.blit(countdown_text, countdown_rect)
     
     def _draw_debug_hitboxes(self, screen):
         """Draw debug hitboxes for entities and gym objects"""

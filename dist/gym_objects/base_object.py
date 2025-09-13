@@ -337,6 +337,31 @@ class GymObject:
             ]
             pygame.draw.polygon(screen, (255, 0, 0), triangle_points)
     
+    def reset(self):
+        """Reset the object to its initial state"""
+        # Reset interaction state
+        self.occupied = False
+        self.occupying_npc = None
+        self.interaction_timer = 0
+        
+        # Reset visual state
+        self.animation_frame = 0
+        self.animation_timer = 0
+        self.moving = False
+        
+        # Reset states
+        self.states.clear()
+        
+        # Reset cleaning state
+        self.cleaning = False
+        self.cleaning_frame = 7
+        self.cleaning_timer = 0
+        
+        # Reset cached sprites
+        self._cached_sprite = None
+        self._cached_scale = None
+        self._cached_zoom = None
+
     def _draw_waypoint_indicator(self, screen, screen_x, screen_y, screen_width, screen_height, frame_surface):
         """Draw waypoint indicator on screen edge pointing toward off-screen object"""
         # Calculate direction from screen center to object

@@ -24,48 +24,48 @@ class DialogueManager:
         """Setup dialogue trees for different NPCs"""
         self.dialogue_trees = {
             "greeting": {
-                "text": "Hey there! How's your workout going?",
+                "text": "Yo bro! What's good? How's it going?",
                 "responses": [
-                    {"text": "Great, thanks!", "next": "positive_response"},
-                    {"text": "Could be better...", "next": "encouraging_response"},
-                    {"text": "Just getting started!", "next": "motivational_response"}
+                    {"text": "Pretty good, thanks!", "next": "positive_response"},
+                    {"text": "Eh, could be better...", "next": "encouraging_response"},
+                    {"text": "Just getting started here!", "next": "motivational_response"}
                 ]
             },
             "positive_response": {
-                "text": "That's awesome! Keep up the great work!",
+                "text": "Hell yeah bro! That's what I like to hear! Oh I used to bench a lot in high school - those were the days!",
                 "responses": [
-                    {"text": "Thanks!", "next": "end"},
-                    {"text": "You too!", "next": "end"}
+                    {"text": "Nice! What'd you bench?", "next": "end"},
+                    {"text": "Respect!", "next": "end"}
                 ]
             },
             "encouraging_response": {
-                "text": "Don't worry, everyone has off days. You've got this!",
+                "text": "Come on bro, we all have those days! Oh yeah bro you gotta pump the muscle for it to grow! No pain, no gain!",
                 "responses": [
-                    {"text": "Thanks for the encouragement!", "next": "end"},
-                    {"text": "I appreciate it!", "next": "end"}
-                ]
-            },
-            "motivational_response": {
-                "text": "That's the spirit! Every expert was once a beginner!",
-                "responses": [
-                    {"text": "True!", "next": "end"},
+                    {"text": "You're right, let's go!", "next": "end"},
                     {"text": "Thanks for the motivation!", "next": "end"}
                 ]
             },
-            "equipment_tip": {
-                "text": "Hey, I noticed you might want to try the squat rack - it's great for building strength!",
+            "motivational_response": {
+                "text": "That's the attitude! Back in my day, we didn't have all these fancy machines - just iron and determination!",
                 "responses": [
-                    {"text": "Thanks for the tip!", "next": "end"},
-                    {"text": "I'll check it out!", "next": "end"},
-                    {"text": "Maybe later...", "next": "end"}
+                    {"text": "Respect the old school!", "next": "end"},
+                    {"text": "I'll keep grinding!", "next": "end"}
+                ]
+            },
+            "equipment_tip": {
+                "text": "Yo bro, you ever hit the squat rack? That's where the real gains are made! I used to squat 315 back in the day!",
+                "responses": [
+                    {"text": "Damn, that's impressive!", "next": "end"},
+                    {"text": "I'll give it a shot!", "next": "end"},
+                    {"text": "Maybe when I'm stronger...", "next": "end"}
                 ]
             },
             "form_advice": {
-                "text": "I saw you working out - make sure to keep your back straight!",
+                "text": "Bro, when you do start lifting, keep that back tight! You don't want to end up like me with this bad back from sloppy lifting!",
                 "responses": [
-                    {"text": "Thanks for the advice!", "next": "end"},
+                    {"text": "Thanks for looking out!", "next": "end"},
                     {"text": "I'll remember that!", "next": "end"},
-                    {"text": "Good to know!", "next": "end"}
+                    {"text": "Appreciate the tip!", "next": "end"}
                 ]
             }
         }
