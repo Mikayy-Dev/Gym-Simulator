@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 # Gym Sim
 =======
 # Gym-Simulator v0.2
+=======
+# Gym-Simulator v0.4
+>>>>>>> 04c6256b35c247dc345e0c2ffd23886fdff7284b
 
 A gym management simulation game where you run a fitness center and keep your customers happy!
 
@@ -88,6 +92,3 @@ Gym Sim is a top-down simulation game where you manage a gym, interact with equi
 ### Time System
 - **Game Clock**: Tracks in-game time
 - **NPC Departure**: NPCs leave after 60 seconds
-
-
-
