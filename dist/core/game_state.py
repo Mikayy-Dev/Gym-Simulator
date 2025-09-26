@@ -17,13 +17,11 @@ class StateManager:
         from .screens.cutscene_screen_state import CutsceneScreenState
         from .screens.title_screen_state import TitleScreenState
         from .screens.game_screen_state import GameScreenState
-        from .screens.settings_screen_state import SettingsScreenState
         from .screens.pause_screen_state import PauseScreenState
         from .screens.fired_screen_state import FiredScreenState
         from .screens.evaluation_screen_state import EvaluationScreenState
+        from .screens.how_to_play_screen_state import HowToPlayScreenState
         
-        # Store the import for use in change_state
-        self.SettingsScreenState = SettingsScreenState
         
         self.states = {
             "cutscene": CutsceneScreenState(),
@@ -31,34 +29,13 @@ class StateManager:
             "game": GameScreenState(self.audio_system, self.game_engine),
             "pause": PauseScreenState(self.audio_system),
             "fired": FiredScreenState(self.audio_system),
-            "evaluation": None  # Will be created dynamically with task tracker
+            "evaluation": None,  # Will be created dynamically with task tracker
+            "how_to_play": HowToPlayScreenState()
         }
     
     def change_state(self, state_name, from_state=None):
         """Change to a different state"""
-        if state_name == "settings":
-            # Create settings state dynamically based on where it's called from
-            from_state = from_state or self.current_state
-            settings_state = self.SettingsScreenState(self.audio_system, self.game_engine, from_state)
-            
-            # Clean up current state
-            if self.current_state and hasattr(self.states[self.current_state], 'exit'):
-                self.states[self.current_state].exit()
-            
-            # Handle audio transitions
-            self._handle_audio_transition(self.current_state, state_name)
-            
-            # Switch to new state
-            self.current_state = state_name
-            
-            # Initialize new state
-            if hasattr(settings_state, 'enter'):
-                settings_state.enter()
-            
-            # Store the settings state temporarily
-            self.temp_settings_state = settings_state
-            
-        elif state_name == "evaluation":
+        if state_name == "evaluation":
             # Create evaluation state dynamically with task tracker from game state
             from_state = from_state or self.current_state
             task_tracker = None
@@ -84,6 +61,33 @@ class StateManager:
             
             # Store the evaluation state temporarily
             self.temp_evaluation_state = evaluation_state
+            
+        elif state_name == "fired":
+            # Special handling for fired screen to pass score data
+            from_state = from_state or self.current_state
+            
+            # Clean up current state
+            if self.current_state and hasattr(self.states[self.current_state], 'exit'):
+                self.states[self.current_state].exit()
+            
+            # Handle audio transitions
+            self._handle_audio_transition(self.current_state, state_name)
+            
+            # Pass score data to fired screen if available
+            if from_state == "game" and hasattr(self.states["game"], 'final_score_data'):
+                score_data = self.states["game"].final_score_data
+                self.states["fired"].set_final_score(
+                    score_data['score'],
+                    score_data['time_played'],
+                    score_data['npcs_served']
+                )
+            
+            # Switch to new state
+            self.current_state = state_name
+            
+            # Initialize new state
+            if hasattr(self.states[state_name], 'enter'):
+                self.states[state_name].enter()
             
         elif state_name in self.states:
             # Clean up current state (including temporary states)
@@ -115,11 +119,7 @@ class StateManager:
     
     def update(self, delta_time, events):
         """Update current state"""
-        if self.current_state == "settings" and hasattr(self, 'temp_settings_state'):
-            action = self.temp_settings_state.update(delta_time, events)
-            if action:
-                self._handle_state_transition(action)
-        elif self.current_state == "evaluation" and hasattr(self, 'temp_evaluation_state'):
+        if self.current_state == "evaluation" and hasattr(self, 'temp_evaluation_state'):
             action = self.temp_evaluation_state.update(delta_time, events)
             if action:
                 self._handle_state_transition(action)
@@ -130,9 +130,7 @@ class StateManager:
     
     def draw(self, screen):
         """Draw current state"""
-        if self.current_state == "settings" and hasattr(self, 'temp_settings_state'):
-            self.temp_settings_state.draw(screen)
-        elif self.current_state == "evaluation" and hasattr(self, 'temp_evaluation_state'):
+        if self.current_state == "evaluation" and hasattr(self, 'temp_evaluation_state'):
             self.temp_evaluation_state.draw(screen)
         elif self.current_state and self.current_state in self.states:
             self.states[self.current_state].draw(screen)
@@ -165,6 +163,11 @@ class StateManager:
             self.audio_system.set_volume(0.3)  # Set to 30% volume
             self.audio_system.play_sound("title_music")
         
+        # Game to Evaluation transition
+        elif from_state == "game" and to_state == "evaluation":
+            self.audio_system.stop_background_music()
+            self.audio_system.audio_manager.stop_all_sound_effects()
+
         # Game to Pause transition (pause game music)
         elif from_state == "game" and to_state == "pause":
             # Music will be paused by the pause screen itself
@@ -175,26 +178,6 @@ class StateManager:
             self.audio_system.set_volume(0.7)  # Reset to normal volume
             # Resume music from where it was paused
             self.audio_system.unpause_background_music()
-        
-        # Title to Settings transition (keep title music)
-        elif from_state == "title" and to_state == "settings":
-            # Keep title music playing
-            pass
-        
-        # Settings to Title transition (keep title music)
-        elif from_state == "settings" and to_state == "title":
-            # Don't restart title music - it should already be playing
-            pass
-        
-        # Pause to Settings transition (keep game music)
-        elif from_state == "pause" and to_state == "settings":
-            # Keep game music playing
-            pass
-        
-        # Settings to Pause transition (keep game music)
-        elif from_state == "settings" and to_state == "pause":
-            # Keep game music playing
-            pass
         
         # Fired to Title transition
         elif from_state == "fired" and to_state == "title":
@@ -216,6 +199,13 @@ class StateManager:
             self.audio_system.audio_manager.stop_all_sound_effects()  # Stop any sound effects
             self.audio_system.set_volume(0.7)  # Reset to normal volume
             # Background music will start after countdown completes
+        
+        # Evaluation to Title transition
+        elif from_state == "evaluation" and to_state == "title":
+            self.audio_system.stop_background_music()
+            self.audio_system.audio_manager.stop_all_sound_effects()
+            self.audio_system.set_volume(0.3)
+            self.audio_system.play_sound("title_music")
     
     def _handle_state_transition(self, action):
         """Handle transitions between states"""
@@ -234,8 +224,8 @@ class StateManager:
             return "quit"
         elif action == "Back to Title":
             self.change_state("title")
-        elif action == "Settings":
-            self.change_state("settings", self.current_state)
+        elif action == "How to Play":
+            self.change_state("how_to_play")
         elif action == "title":
             self.change_state("title")
         elif action == "Resume":
@@ -370,13 +360,3 @@ class GameState:
         
         self.player.draw(screen)
 
-class SettingsState:
-    """Handles settings state"""
-    
-    def update(self, delta_time, events):
-        # Add settings logic here
-        return None
-    
-    def draw(self, screen):
-        # Add settings drawing here
-        pass

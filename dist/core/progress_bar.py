@@ -1,7 +1,7 @@
 import pygame
 
 class ProgressBar:
-    def __init__(self, x=50, y=50, width=200, height=20, max_progress=100):
+    def __init__(self, x=50, y=50, width=200, height=20, max_progress=100, difficulty_scaler=None):
         self.x = x
         self.y = y
         self.width = width
@@ -10,13 +10,10 @@ class ProgressBar:
         self.current_progress = 0
         self.level = 1
         self.base_requirement = 100
-        self.is_charging = False  # Whether player is currently doing tasks
+        self.is_charging = False
         self.last_activity_time = 0
-        self.activity_timeout = 2000  # 2 seconds of inactivity before decay starts
-        self.base_charge_rate = 3.0  # Base charge rate (reduced from 6.0)
-        self.base_decay_rate = 1.0  # Base decay rate (reduced from 2.0)
-        self.charge_rate = self.base_charge_rate  # Current charge rate
-        self.decay_rate = self.base_decay_rate  # Current decay rate
+        self.recent_event_label_ms = 400
+        self.difficulty_scaler = difficulty_scaler
         
         # Colors
         self.bg_color = (50, 50, 50)
@@ -24,37 +21,36 @@ class ProgressBar:
         self.charge_color = (0, 255, 255)  # Cyan when charging
         self.border_color = (255, 255, 255)
         
-    def start_charging(self):
-        """Start charging the progress bar - called when player does a task"""
+    def start_charging(self, amount: float = 5.0):
+        """Apply an immediate progress increment for an event."""
         self.is_charging = True
         self.last_activity_time = pygame.time.get_ticks()
+        
+        # Apply difficulty scaling to XP amount
+        scaled_amount = float(amount)
+        if self.difficulty_scaler:
+            # Get current difficulty multiplier (time + performance based)
+            difficulty_multiplier = self.difficulty_scaler.get_time_multiplier()
+            # Scale XP based on difficulty - higher difficulty = more XP
+            scaled_amount *= difficulty_multiplier
+        
+        self.current_progress += scaled_amount
+        if self.current_progress >= self.max_progress:
+            self.level_up()
     
     def stop_charging(self):
         """Stop charging the progress bar - called when player stops doing tasks"""
         self.is_charging = False
     
     def update(self, delta_time):
-        """Update charge bar (handle charging and decay)"""
+        """No passive charge/decay; only clear the charging label after a short delay."""
         current_time = pygame.time.get_ticks()
-        time_since_activity = current_time - self.last_activity_time
-        
-        # Check if we should stop charging due to timeout
-        if self.is_charging and time_since_activity >= self.activity_timeout:
+        if self.is_charging and (current_time - self.last_activity_time) >= self.recent_event_label_ms:
             self.is_charging = False
-        
-        # Handle charging/decay based on activity state
-        if self.is_charging:
-            # Charging while actively doing tasks
-            charge_amount = self.charge_rate * delta_time
-            self.current_progress += charge_amount
-            
-            # Check if bar is full and needs to level up
-            if self.current_progress >= self.max_progress:
-                self.level_up()
-        else:
-            # Decaying when not charging
-            decay_amount = self.decay_rate * delta_time
-            self.current_progress = max(self.current_progress - decay_amount, 0)
+        # Clamp bounds
+        if self.current_progress < 0:
+            self.current_progress = 0
+        # level_up already clamps when crossing max; otherwise allow exceeding until level_up is called
     
     def draw(self, screen):
         """Draw the charge bar"""
@@ -71,10 +67,8 @@ class ProgressBar:
             
             # Change color based on charging state
             if self.is_charging:
-                # Cyan when charging
                 fill_color = self.charge_color
             else:
-                # Green when stable/decaying
                 fill_color = self.fill_color
             
             pygame.draw.rect(screen, fill_color, fill_rect)
@@ -93,15 +87,16 @@ class ProgressBar:
         except:
             font = pygame.font.Font(None, 16)
         
-        charge_text = "CHARGING" if self.is_charging else "DECAYING"
+        charge_text = "CHARGING" if self.is_charging else ""
         progress_text = f"{int(self.current_progress)}/{self.max_progress}"
         level_text = f"Tier {self.level}"
         
         # Draw charge indicator
-        charge_surface = font.render(charge_text, True, self.charge_color if self.is_charging else (255, 100, 100))
-        charge_rect = charge_surface.get_rect()
-        charge_rect.topleft = (self.x, self.y - 20)
-        screen.blit(charge_surface, charge_rect)
+        if charge_text:
+            charge_surface = font.render(charge_text, True, self.charge_color)
+            charge_rect = charge_surface.get_rect()
+            charge_rect.topleft = (self.x, self.y - 20)
+            screen.blit(charge_surface, charge_rect)
         
         # Draw level text
         level_surface = font.render(level_text, True, (255, 255, 0))
@@ -127,9 +122,7 @@ class ProgressBar:
         """Check if progress bar is empty"""
         return self.current_progress <= 0
     
-    def is_charging(self):
-        """Check if progress bar is currently charging"""
-        return self.is_charging
+    # Removed ambiguous is_charging() accessor to avoid name collision with attribute
     
     def get_charge_percentage(self):
         """Get current charge as percentage (0-100)"""
@@ -140,10 +133,6 @@ class ProgressBar:
         self.level += 1
         self.current_progress = 0
         self.max_progress = self.base_requirement * self.level
-        
-        # Increase both charge and decay rates
-        self.charge_rate = self.base_charge_rate * self.level
-        self.decay_rate = self.base_decay_rate * self.level
         
         # Award skill points based on level progression
         if hasattr(self, 'upgrade_point_manager') and self.upgrade_point_manager:
@@ -170,6 +159,10 @@ class ProgressBar:
         """Set the upgrade point manager to award points to"""
         self.upgrade_point_manager = upgrade_point_manager
     
+    def set_difficulty_scaler(self, difficulty_scaler):
+        """Set the difficulty scaler for XP scaling"""
+        self.difficulty_scaler = difficulty_scaler
+    
     def reset(self):
         """Reset the progress bar to initial state"""
         self.current_progress = 0
@@ -177,5 +170,3 @@ class ProgressBar:
         self.max_progress = self.base_requirement
         self.is_charging = False
         self.last_activity_time = 0
-        self.charge_rate = self.base_charge_rate
-        self.decay_rate = self.base_decay_rate

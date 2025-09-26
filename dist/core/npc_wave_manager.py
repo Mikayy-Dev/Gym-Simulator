@@ -1,96 +1,54 @@
 """
 NPC Wave Manager
-Handles burst-based NPC spawning system
+Handles steady stream NPC spawning system
 """
 
 import random
 
 class NPCWaveManager:
-    """Manages NPC spawning with burst pattern: 30 seconds active every 90 seconds"""
+    """Manages NPC spawning with steady stream pattern"""
     
-    def __init__(self, game_clock=None):
+    def __init__(self, game_clock=None, difficulty_scaler=None):
         self.game_clock = game_clock
+        self.difficulty_scaler = difficulty_scaler
         
-        # Peak time configuration (early morning, afternoon, evening)
-        self.peak_spawn_interval = 60.0  # 60 seconds between spawn chances
-        self.peak_spawn_cooldown = 10.0  # 10 seconds between individual NPC spawns
-        self.peak_spawns_per_cycle = 3   # 3 spawn chances per cycle
-        self.peak_npcs_per_spawn = (1, 2)  # 1-2 NPCs per spawn chance
-        
-        # Non-peak time configuration
-        self.non_peak_spawn_interval = 90.0  # 90 seconds between spawn chances
-        self.non_peak_spawn_cooldown = 15.0  # 15 seconds between individual NPC spawns
-        self.non_peak_spawns_per_cycle = 2   # 2 spawn chances per cycle
-        self.non_peak_npcs_per_spawn = (1, 2)  # 1-2 NPCs per spawn chance
-        
-        # Peak time hours
-        self.peak_hours = {
-            "early_morning": (5, 7),    # 5-7 AM
-            "afternoon": (13, 18),      # 1-6 PM
-            "evening": (21, 23)         # 9-11 PM
-        }
+        # Steady stream configuration
+        self.base_spawn_interval = 8.0  # 8 seconds between spawns at base difficulty
+        self.spawn_variance = 3.0  # ±3 seconds random variance
+        self.npcs_per_spawn = (1, 1)  # Always spawn 1 NPC
         
         # State tracking
-        self.last_spawn_time = -30.0  # Start with negative value so first spawn triggers immediately
-        self.spawns_this_cycle = 0
-        self.cycle_start_time = 0.0
+        self.last_spawn_time = -10.0  # Start with negative value so first spawn triggers immediately
+        self.next_spawn_time = 2.0  # Start spawning 2 seconds after game starts
         
         # Overall limits
-        self.max_total_npcs = 20  # Maximum NPCs in the gym at once
+        self.base_max_npcs = 20  # Maximum NPCs in the gym at once at base difficulty
         self.total_npcs_spawned = 0
         
-    def is_peak_time(self):
-        """Check if current time is during peak hours"""
-        if not self.game_clock:
-            return False
-            
-        current_hour = self.game_clock.current_hour
-        
-        for wave_name, (start_hour, end_hour) in self.peak_hours.items():
-            if start_hour <= current_hour < end_hour:
-                return True
-        return False
-    
-    def should_spawn_npc(self, current_time, npc_count):
-        """Check if we should spawn NPCs using 6-spawn cycle pattern"""
-        if npc_count >= self.max_total_npcs:
+    def should_spawn_npc(self, current_time, npc_count, current_happiness=None):
+        """Check if we should spawn NPCs using steady stream pattern"""
+        # Calculate difficulty-adjusted limits
+        max_npcs = self._get_max_npcs()
+        if npc_count >= max_npcs:
             return False, 0
         
-        is_peak = self.is_peak_time()
+        # Calculate difficulty-adjusted spawn interval
+        spawn_interval = self._get_spawn_interval(current_happiness)
         
-        # Determine spawn configuration based on peak/non-peak
-        if is_peak:
-            spawn_interval = self.peak_spawn_interval
-            spawn_cooldown = self.peak_spawn_cooldown
-            spawns_per_cycle = self.peak_spawns_per_cycle
-            npcs_per_spawn = self.peak_npcs_per_spawn
-        else:
-            spawn_interval = self.non_peak_spawn_interval
-            spawn_cooldown = self.non_peak_spawn_cooldown
-            spawns_per_cycle = self.non_peak_spawns_per_cycle
-            npcs_per_spawn = self.non_peak_npcs_per_spawn
+        # Initialize next spawn time if not set
+        if self.next_spawn_time == 0.0:
+            self.next_spawn_time = current_time + spawn_interval + random.uniform(-self.spawn_variance, self.spawn_variance)
         
-        # Check if we need to start a new cycle
-        if self.spawns_this_cycle >= spawns_per_cycle:
-            # Reset cycle
-            self.spawns_this_cycle = 0
-            self.cycle_start_time = current_time
-        
-        # Check if enough time has passed since last spawn
-        if current_time - self.last_spawn_time >= spawn_cooldown:
-            # Check if we're within the spawn interval for this cycle
-            if self.spawns_this_cycle < spawns_per_cycle:
-                # Random spawn count between min and max
-                max_possible_spawns = min(npcs_per_spawn[1], self.max_total_npcs - npc_count)
-                if max_possible_spawns > 0:
-                    spawn_count = random.randint(npcs_per_spawn[0], max_possible_spawns)
-                    return True, spawn_count
+        # Check if it's time to spawn
+        if current_time >= self.next_spawn_time:
+            # Calculate next spawn time with variance
+            self.next_spawn_time = current_time + spawn_interval + random.uniform(-self.spawn_variance, self.spawn_variance)
+            return True, 1  # Always spawn 1 NPC
         
         return False, 0
     
     def spawn_npcs(self, current_time, spawn_count):
-        """Spawn NPCs and update cycle data"""
-        self.spawns_this_cycle += 1
+        """Spawn NPCs and update tracking data"""
         self.last_spawn_time = current_time
         
         # Update total count
@@ -98,9 +56,42 @@ class NPCWaveManager:
         
         return True
     
+    def _get_max_npcs(self):
+        """Get maximum NPCs based on difficulty"""
+        if not self.difficulty_scaler:
+            return self.base_max_npcs
+        
+        # Increase max NPCs with difficulty (up to 15% more)
+        multiplier = self.difficulty_scaler.get_npc_spawn_multiplier()
+        return int(self.base_max_npcs * (1.0 + (multiplier - 1.0) * 0.15))
+    
+    def _get_spawn_interval(self, current_happiness=None):
+        """Get spawn interval based on difficulty"""
+        if not self.difficulty_scaler:
+            return self.base_spawn_interval
+        
+        # Decrease spawn interval with difficulty (faster spawning)
+        multiplier = self.difficulty_scaler.get_npc_spawn_multiplier(current_happiness)
+        return max(5.0, self.base_spawn_interval / (multiplier * 0.5))  # Minimum 5 seconds between spawns, much reduced scaling
+    
+    def get_difficulty_info(self, current_happiness=None):
+        """Get current difficulty information for display"""
+        if not self.difficulty_scaler:
+            return {
+                'level': 'Normal',
+                'spawn_interval': self.base_spawn_interval,
+                'max_npcs': self.base_max_npcs
+            }
+        
+        return {
+            'level': self.difficulty_scaler.get_difficulty_level(current_happiness),
+            'spawn_interval': self._get_spawn_interval(current_happiness),
+            'max_npcs': self._get_max_npcs(),
+            'description': self.difficulty_scaler.get_difficulty_description(current_happiness)
+        }
+    
     def reset_wave_counts(self):
-        """Reset spawn cycle state (call at start of new day)"""
-        self.last_spawn_time = -30.0  # Reset to trigger immediate spawning
-        self.spawns_this_cycle = 0
-        self.cycle_start_time = 0.0
+        """Reset spawn state (call at start of new day)"""
+        self.last_spawn_time = -10.0  # Reset to trigger immediate spawning
+        self.next_spawn_time = 0.0
         self.total_npcs_spawned = 0

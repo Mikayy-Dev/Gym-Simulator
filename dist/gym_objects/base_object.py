@@ -30,10 +30,17 @@ class GymObject:
         self.moving = False
         
         # State management
-        self.states = set()  # empty, in_use, dirty, cluttered
+        self.states = set()  # empty, in_use, dirty, cluttered, maintenance_required
         self.cleaning = False
         self.cleaning_frame = 7
         self.cleaning_timer = 0
+        
+        # Maintenance system
+        self.maintenance_required = False
+        self.maintenance_timer = 0.0
+        self.maintenance_interval = 600.0  # 10 minutes at base difficulty (increased from 5)
+        self.breakdown_chance = 0.005  # 0.5% chance per update at base difficulty (reduced from 1%)
+        self.difficulty_scaler = None
         
         # Collision properties
         self.rect = pygame.Rect(x, y, self.sprite_width, self.sprite_height)
@@ -167,6 +174,9 @@ class GymObject:
                     if hasattr(self, 'can_become_dirty') and self.can_become_dirty:
                         self.add_state("dirty")
         
+        # Update maintenance system
+        self._update_maintenance(delta_time)
+        
         # Update cleaning animation
         if self.cleaning:
             self.cleaning_timer += delta_time
@@ -270,7 +280,8 @@ class GymObject:
     
     def _needs_attention(self):
         """Check if this object needs attention (dirty or on but not occupied)"""
-        return "dirty" in self.states or (hasattr(self, 'on_but_not_occupied') and self.on_but_not_occupied)
+        return ("dirty" in self.states or 
+                (hasattr(self, 'on_but_not_occupied') and self.on_but_not_occupied))
     
     def _draw_attention_indicator(self, screen, camera, screen_x, screen_y):
         """Draw the animated attention.png image as a waypoint indicator"""
@@ -361,6 +372,65 @@ class GymObject:
         self._cached_sprite = None
         self._cached_scale = None
         self._cached_zoom = None
+        
+        # Reset maintenance state
+        self.maintenance_required = False
+        self.maintenance_timer = 0.0
+    
+    def set_difficulty_scaler(self, difficulty_scaler):
+        """Set the difficulty scaler for this object"""
+        self.difficulty_scaler = difficulty_scaler
+    
+    def _update_maintenance(self, delta_time):
+        """Update maintenance system"""
+        if not self.maintenance_required:
+            self.maintenance_timer += delta_time
+            
+            # Calculate maintenance interval based on difficulty
+            maintenance_interval = self.maintenance_interval
+            if self.difficulty_scaler:
+                maintenance_multiplier = self.difficulty_scaler.get_equipment_maintenance_multiplier()
+                maintenance_interval = self.maintenance_interval / maintenance_multiplier
+            
+            # Check if maintenance is needed
+            if self.maintenance_timer >= maintenance_interval:
+                self._require_maintenance()
+        else:
+            # Equipment is broken, check for random breakdowns
+            if self.difficulty_scaler:
+                breakdown_rate = self.difficulty_scaler.get_equipment_breakdown_rate()
+                import random
+                if random.random() < breakdown_rate * delta_time:
+                    self._breakdown()
+    
+    def _require_maintenance(self):
+        """Mark equipment as requiring maintenance"""
+        self.maintenance_required = True
+        self.add_state("maintenance_required")
+        self.maintenance_timer = 0.0
+    
+    def _breakdown(self):
+        """Equipment breaks down completely"""
+        self.add_state("broken")
+        # Equipment becomes unusable until repaired
+        self.occupied = False
+        if self.occupying_npc:
+            self.occupying_npc._complete_gym_interaction()
+            self.occupying_npc = None
+    
+    def perform_maintenance(self):
+        """Perform maintenance on this equipment"""
+        if self.maintenance_required:
+            self.maintenance_required = False
+            self.remove_state("maintenance_required")
+            self.remove_state("broken")
+            self.maintenance_timer = 0.0
+            return True
+        return False
+    
+    def is_usable(self):
+        """Check if equipment is usable (not broken)"""
+        return "broken" not in self.states
 
     def _draw_waypoint_indicator(self, screen, screen_x, screen_y, screen_width, screen_height, frame_surface):
         """Draw waypoint indicator on screen edge pointing toward off-screen object"""

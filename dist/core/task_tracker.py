@@ -82,6 +82,9 @@ class TaskTracker:
         
         # Time efficiency bonus (more tasks in less time = better)
         time_played = self.stats["time_played"]
+        # Ensure time_played is a number
+        if isinstance(time_played, str):
+            time_played = 0
         if time_played > 0:
             tasks_per_second = self.tasks["total_tasks"] / time_played
             time_efficiency_bonus = tasks_per_second * 50

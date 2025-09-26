@@ -1,10 +1,11 @@
-<<<<<<< HEAD
-# Gym Sim
-=======
-# Gym-Simulator v0.2
-=======
-# Gym-Simulator v0.4
->>>>>>> 04c6256b35c247dc345e0c2ffd23886fdff7284b
+# Gym Simulator v1 release
+
+## Known Issues (Hard to replicate so I couldn't figure out how to fix)
+Weird wobbly screen when dialogue ends 
+Squat sometimes doesn't update frame when returning weights causing
+the rack to be unusable for the remainder of the game
+NPCs will persist in the dumbbell animation and walk around without changing back to the normal sprite
+
 
 A gym management simulation game where you run a fitness center and keep your customers happy!
 
@@ -14,81 +15,28 @@ Gym Sim is a top-down simulation game where you manage a gym, interact with equi
 
 ## Controls
 
-### Movement
-- **W, A, S, D** - Move your character around the gym
-- **Left Shift** - Sprint (drains stamina)
 
-### Game Controls
-- **Escape** - Pause the game
-- **I** - Open/Close skill points inventory
-- **Right Mouse Click** - Interact with gym equipment and objects
+WASD/Arrow Keys: Move around the gym
+Mouse: Click to interact with equipment and NPCs
+ESC: Pause the game
+I: Open skill points inventory
+Shift: Sprint (drains stamina)
 
-### Dialogue Controls
-- **1, 2, 3** - Select dialogue options when talking to NPCs
-- **Escape** - End dialogue
-
-### Debug Controls (Debug Mode Only)
-- **Tab** - Toggle all hitbox visualizations
-- **J** - Toggle interaction hitboxes
-- **O** - Toggle NPC path visualization
-
-## Gameplay Features
-
-### Gym Management
-- **Equipment Maintenance**: Clean dirty equipment by right-clicking on it
-- **Weight Organization**: Pick up weight plates from the floor and organize them
-- **Equipment Control**: Turn off running equipment that's been left unattended
-- **Customer Service**: Interact with gym members and provide assistance
-
-### Skill System
-- **Speed**: Increases your movement speed
-- **Endurance**: Increases your stamina capacity and regeneration
-- **Management**: Improves NPC happiness and gym efficiency
-- **Skill Points**: Earn points by completing tasks and leveling up
-- **Maximum Level**: Each skill can be upgraded to level 5
-
-### Progress System
-- **Progress Bar**: Shows your current level progress
-- **Leveling Up**: Complete tasks to gradually fill the progress bar and level up, long periods of time without tasks completed and the progress is drained. 
-- **Skill Point Rewards**: Earn skill points at levels 2, 4, 6, 8, and 10
-
-### NPC System
-- **Customer Flow**: NPCs arrive, check in at the front desk, work out, and leave
-- **Customer Happiness**: Keep customers happy by maintaining clean equipment and organized weights
-
-### Gym Equipment
-- **Benches**: For bench press workouts
-- **Treadmills**: For cardio exercises
-- **Dumbbell Racks**: For weight training
-- **Squat Racks**: For squat exercises
-- **Front Desk**: Customer check-in point
-- **Trash Cans**: For disposing of items
-
-### Interaction System
-- **Right-click** on equipment to interact
-- **Cleaning**: Right-click dirty equipment to clean it
-- **Weight Management**: Right-click weight plates on the floor to pick them up
-- **Equipment Control**: Right-click running equipment to turn it off
-- **Range Requirement**: You must be close enough to equipment to interact with it
+Right-click dirty equipment: Clean with spray bottle
+Right-click running equipment: Turn off machines
+Right-click dumbbells on floor: Pick up and return to rack
+Right-click weight plates on floor: Pick up and return to rack
+Left-click NPCs: Check them in at the front desk
 
 ## Game Mechanics
 
-### Stamina System
-- **Base Stamina**: 25 points
-- **Sprint Cost**: Drains stamina while sprinting
-- **Regeneration**: Stamina regenerates over time when not sprinting
-- **Endurance Skill**: Increases maximum stamina and regeneration rate
-
-### Happiness System
-- **Base Happiness**: Starts at 50%
-- **Happiness Events**: Various events affect customer happiness
-  - Dirty equipment decreases happiness
-  - Clean equipment increases happiness
-  - Organized weights increase happiness
-  - Unattended running equipment decreases happiness
-  - Empty dumbbell racks decrease happiness
-  - Queue timeouts decrease happiness
-
-### Time System
-- **Game Clock**: Tracks in-game time
-- **NPC Departure**: NPCs leave after 60 seconds
+Equipment gets dirty after NPCs use it
+Clean equipment to maintain customer satisfaction
+Pick up dropped weights to keep the gym organized
+Turn off equipment when not in use to save energy
+Check in NPCs to start their workout sessions
+Keep the happiness bar above zero to avoid being fired
+Cleaning equipment increases customer happiness
+Returning weights to racks improves gym organization
+Turning off unused equipment shows good management
+The happiness bar slowly decreases over time

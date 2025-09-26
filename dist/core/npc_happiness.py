@@ -3,9 +3,10 @@ import time
 
 
 class NPCHappinessManager:
-    def __init__(self, gym_manager, get_management_level_fn=None, x_offset=30, bar_height=300):
+    def __init__(self, gym_manager, get_management_level_fn=None, x_offset=30, bar_height=300, difficulty_scaler=None):
         self.gym_manager = gym_manager
         self.get_management_level_fn = get_management_level_fn
+        self.difficulty_scaler = difficulty_scaler
         self.current_happiness = 50.0
         self.target_happiness = 50.0
         self.debug = False
@@ -18,6 +19,16 @@ class NPCHappinessManager:
         self.border_color = (255, 255, 255)
         self.positive_color = (0, 200, 0)
         self.negative_color = (200, 0, 0)
+        
+        self.is_charging = False
+        self.last_activity_time = 0
+        self.activity_timeout = 2000  # Shorter charging period
+        self.base_charge_rate = 1.5  # Moderate charging
+        self.base_decay_rate = 0.4  # Further reduced decay for steady stream NPCs
+        self.charge_rate = self.base_charge_rate
+        self.decay_rate = self.base_decay_rate
+        self._npc_count_for_decay = 0
+        self._decay_scale_per_npc = 0.10  # Reduced decay per NPC for steady stream
         
         # Load coach_robbie images
         self.coach_images = {}
@@ -94,6 +105,25 @@ class NPCHappinessManager:
         # Base happiness starts at 50% and only changes due to events
         # The gym state doesn't automatically affect happiness - only events do
         self.target_happiness = 50.0
+        
+        # Small passive bonus for keeping gym running smoothly
+        # Only applies if no major issues in the last 10 seconds
+        current_time = time.time()
+        if not hasattr(self, '_last_negative_event_time'):
+            self._last_negative_event_time = 0
+        
+        # No passive bonus - happiness only changes from actual events
+        
+        # Critical warning system - add extra pressure when happiness is very low
+        if self.current_happiness < 15.0:
+            # When critically low, add extra decay pressure
+            critical_pressure = 0.5 * delta_time
+            self.current_happiness = max(0.0, self.current_happiness - critical_pressure)
+            if not hasattr(self, '_critical_warning_shown') or not self._critical_warning_shown:
+                self._add_chat_log_entry("⚠️ CRITICAL: Gym reputation at risk!")
+                self._critical_warning_shown = True
+        elif self.current_happiness >= 25.0 and hasattr(self, '_critical_warning_shown'):
+            self._critical_warning_shown = False
 
         management_level = self._get_management_level()
 
@@ -102,8 +132,37 @@ class NPCHappinessManager:
             print(f"HAPPINESS DEBUG | clean={cleanliness:.2f} org={organization:.2f} target={self.target_happiness:.1f} current={self.current_happiness:.1f} mgmt={management_level}")
             self._debug_last_log_ts = now
 
-        # Don't automatically change happiness - only change through events
-        # Happiness stays at whatever level it was set to by events
+        current_ticks = pygame.time.get_ticks()
+        time_since_activity = current_ticks - self.last_activity_time
+        if self.is_charging and time_since_activity >= self.activity_timeout:
+            self.is_charging = False
+        
+        if self.is_charging:
+            self.current_happiness = min(100.0, self.current_happiness + (self.charge_rate * delta_time))
+        else:
+            # Only decay if there are NPCs in the gym
+            if self._npc_count_for_decay > 0:
+                decay_multiplier = 1.0 + max(0, self._npc_count_for_decay) * self._decay_scale_per_npc
+                effective_decay = self.decay_rate * decay_multiplier
+                
+                # Apply difficulty scaling to decay rate
+                if self.difficulty_scaler:
+                    difficulty_multiplier = self.difficulty_scaler.get_happiness_decay_multiplier(self.current_happiness)
+                    effective_decay *= difficulty_multiplier
+                
+                # More aggressive decay - threat increases as happiness drops
+                if self.current_happiness >= 80.0:
+                    effective_decay *= 0.5  # Moderate decay even when very happy
+                elif self.current_happiness >= 60.0:
+                    effective_decay *= 0.8  # Faster decay when happy
+                elif self.current_happiness >= 40.0:
+                    effective_decay *= 1.2  # Aggressive decay when neutral
+                elif self.current_happiness >= 20.0:
+                    effective_decay *= 1.5  # Very fast decay when unhappy
+                else:
+                    effective_decay *= 2.0  # Critical decay when very unhappy
+                
+                self.current_happiness = max(0.0, self.current_happiness - (effective_decay * delta_time))
         
         # Update chat log animations
         self._update_chat_log_animations(now)
@@ -129,6 +188,25 @@ class NPCHappinessManager:
         # Remove expired messages (in reverse order to maintain indices)
         for i in reversed(messages_to_remove):
             self.chat_log.pop(i)
+
+    def start_charging(self):
+        self.is_charging = True
+        self.last_activity_time = pygame.time.get_ticks()
+
+    def stop_charging(self):
+        self.is_charging = False
+
+    def set_npc_count_for_decay(self, count: int):
+        try:
+            self._npc_count_for_decay = max(0, int(count))
+        except Exception:
+            self._npc_count_for_decay = 0
+
+    def set_decay_scale_per_npc(self, scale: float):
+        try:
+            self._decay_scale_per_npc = max(0.0, float(scale))
+        except Exception:
+            pass
 
     def draw(self, screen, timer_center_x=None, timer_height=None):
         screen_width = screen.get_width()
@@ -186,7 +264,7 @@ class NPCHappinessManager:
         self._draw_coach_graphic(screen, bar_x, bar_y, scaled_width, scaled_height)
         
         # Draw chat log below happiness bar
-        self._draw_chat_log(screen, bar_x, bar_y + scaled_height + 10, scaled_width)
+        self._draw_chat_log(screen, bar_x, bar_y + scaled_height + 80, scaled_width)
 
     def _draw_coach_graphic(self, screen, bar_x, bar_y, bar_width, bar_height):
         """Draw coach_robbie graphic based on happiness level"""
@@ -262,10 +340,44 @@ class NPCHappinessManager:
     # --- Event-based penalties (call from NPC behaviors) ---
     def _apply_penalty(self, amount):
         management_level = self._get_management_level()
-        scaled = amount * max(0.2, (1.0 - management_level * 0.1))
+        # Management skill reduces penalties more significantly
+        # Level 0: 100% penalty, Level 10: 20% penalty (80% reduction)
+        management_reduction = max(0.2, 1.0 - (management_level * 0.08))
+        scaled = amount * management_reduction
+        
+        # Apply difficulty scaling to penalties
+        if self.difficulty_scaler:
+            difficulty_multiplier = self.difficulty_scaler.get_penalty_multiplier(self.current_happiness)
+            scaled *= difficulty_multiplier
+        
+        # Compound penalty - if happiness is already low, penalties are more severe
+        if self.current_happiness < 30.0:
+            scaled *= 1.5  # 50% more penalty when already struggling
+        elif self.current_happiness < 50.0:
+            scaled *= 1.2  # 20% more penalty when below neutral
+        
+        # Multiple recent penalties increase threat
+        current_time = time.time()
+        if not hasattr(self, '_recent_penalties'):
+            self._recent_penalties = []
+        
+        # Clean old penalties (older than 30 seconds)
+        self._recent_penalties = [t for t in self._recent_penalties if current_time - t < 30.0]
+        self._recent_penalties.append(current_time)
+        
+        # If multiple penalties in short time, increase severity
+        if len(self._recent_penalties) >= 3:
+            scaled *= 1.3  # 30% more penalty for multiple issues
+        elif len(self._recent_penalties) >= 2:
+            scaled *= 1.1  # 10% more penalty for recent issues
+        
         if self.debug:
             print(f"HAPPINESS EVENT | penalty={amount:.1f} scaled={scaled:.1f} mgmt={management_level} before={self.current_happiness:.1f}")
         self.current_happiness = max(0.0, self.current_happiness - scaled)
+        
+        # Track when negative events happen for passive bonus system
+        self._last_negative_event_time = time.time()
+        
         if self.debug:
             print(f"HAPPINESS EVENT | after={self.current_happiness:.1f}")
 
@@ -275,33 +387,40 @@ class NPCHappinessManager:
 
     def on_queue_timeout(self):
         # NPC waited too long and left
-        self._apply_penalty(5.0)
+        self._apply_penalty(25.0)  # Much larger penalty - this is a critical issue
         self._add_chat_log_entry("Customer left - waited too long")
 
     def on_dirty_machine_encountered(self):
         # NPC found target machine dirty
-        self._apply_penalty(4.0)
+        self._apply_penalty(10.0)  # Increased - hygiene is important
         self._add_chat_log_entry("Customer found dirty machine")
 
     def on_squat_rack_weights_on_floor(self):
         # NPC wants squat rack but plates are on floor
-        self._apply_penalty(3.0)
+        self._apply_penalty(10.0)  # Increased - safety hazard
         self._add_chat_log_entry("Weights left on floor")
 
     def on_treadmill_unattended_running(self):
         # Treadmill is running with no user
-        self._apply_penalty(2.5)
+        self._apply_penalty(10.0)  # Slightly increased
         self._add_chat_log_entry("Treadmill left running")
 
     def on_dumbbell_rack_empty(self):
         # NPC wants dumbbells but rack empty
-        self._apply_penalty(3.5)
+        self._apply_penalty(10.0)  # Increased - equipment unavailable
         self._add_chat_log_entry("Dumbbell rack empty")
 
     # --- Event-based bonuses (call from positive actions) ---
     def _apply_bonus(self, amount):
         management_level = self._get_management_level()
-        scaled = amount * max(0.2, (1.0 - management_level * 0.1))
+        # Management skill increases bonuses
+        # Level 0: 100% bonus, Level 10: 180% bonus (80% increase)
+        management_bonus = 1.0 + (management_level * 0.08)
+        scaled = amount * management_bonus
+        
+        # Diminishing returns when happiness is very high
+        if self.current_happiness >= 70.0:
+            scaled *= 0.6
         if self.debug:
             print(f"HAPPINESS EVENT | bonus={amount:.1f} scaled={scaled:.1f} mgmt={management_level} before={self.current_happiness:.1f}")
         self.current_happiness = min(100.0, self.current_happiness + scaled)
@@ -310,19 +429,19 @@ class NPCHappinessManager:
 
     def on_npc_checked_in(self):
         # NPC successfully checked in
-        self._apply_bonus(2.0)
+        self._apply_bonus(2.0)  # Balanced - important reward
 
     def on_machine_cleaned(self):
         # Player cleaned a machine
-        self._apply_bonus(1.5)
+        self._apply_bonus(1.5)  # Balanced - good reward
 
     def on_weights_organized(self):
         # Player organized weights (picked up floor plates)
-        self._apply_bonus(1.0)
+        self._apply_bonus(1.0)  # Balanced - decent reward
 
     def on_treadmill_turned_off(self):
         # Player turned off unattended treadmill
-        self._apply_bonus(1.5)
+        self._apply_bonus(1.5)  # Balanced - good reward
 
     def reset_happiness(self):
         """Reset happiness to starting value"""

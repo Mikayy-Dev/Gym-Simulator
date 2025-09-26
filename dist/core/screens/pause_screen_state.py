@@ -14,7 +14,7 @@ class PauseScreenState(BaseScreenState):
         super().__init__()
         self.audio_system = audio_system
         self.selected_option = 0
-        self.options = ["Resume", "Settings", "Back to Title"]
+        self.options = ["Resume", "Back to Title"]
         self.font = None
         self.title_font = None
         self.background_surface = None

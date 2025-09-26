@@ -22,6 +22,7 @@ class Player:
         self.stamina_regen_rate = 25  # stamina per second
         self.sprint_stamina_drain = 40  # stamina per second
         self.stamina_timer = 0
+        self.is_attempting_sprint = False  # Track if player is holding sprint key
         
         # Hitbox system - define collision areas relative to player position
         # Small, precise hitboxes for minimal collision detection
@@ -68,7 +69,7 @@ class Player:
             # Endurance reduces stamina drain rate
             drain_rate = self.sprint_stamina_drain * (1.0 - (self.endurance_level * 0.1))  # 10% reduction per level
             self.current_stamina = max(0, self.current_stamina - drain_rate * delta_time)
-        else:  # Not sprinting
+        elif not self.is_attempting_sprint:  # Not sprinting AND not attempting to sprint
             self.current_stamina = min(self.get_max_stamina(), self.current_stamina + self.stamina_regen_rate * delta_time)
     
     def update_global_interruption_cooldown(self, delta_time):
@@ -162,8 +163,11 @@ class Player:
         if self.locked_in_dialogue:
             return
         
+        # Track if player is attempting to sprint
+        self.is_attempting_sprint = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        
         # Update speed based on shift key and stamina
-        if (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]) and self.current_stamina > 0:
+        if self.is_attempting_sprint and self.current_stamina >= 1.0:
             self.speed = self.get_sprint_speed()
         else:
             self.speed = self.get_walking_speed()

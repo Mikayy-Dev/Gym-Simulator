@@ -17,6 +17,7 @@ from ..skill_points_inventory import SkillPointsInventory
 from ..npc_happiness import NPCHappinessManager
 from ..queue_manager import QueueManager
 from ..task_tracker import TaskTracker
+from ..difficulty_scaler import DifficultyScaler
 
 class GameScreenState(BaseScreenState):
     """Handles the main game screen"""
@@ -48,6 +49,10 @@ class GameScreenState(BaseScreenState):
         # Dialogue system
         self.dialogue_manager = None
         self.dialogue_ui = None
+        self._dialogue_zoom_active = False
+        self._camera_zoom_target = None
+        self._camera_base_zoom = None
+        self._camera_zoom_speed = 2.0
         
         # Workout zone system
         self.workout_zone_manager = None
@@ -64,11 +69,14 @@ class GameScreenState(BaseScreenState):
         # Task tracking system
         self.task_tracker = None
         
+        # Difficulty scaling
+        self.difficulty_scaler = None
+        
+        # Real time tracking
+        self.real_start_time = 0.0
+        
         # Time overlay image
         self.time_overlay_image = None
-        
-        # Countdown timer (5 minutes)
-        self.countdown_timer = 300.0
         
         # Pre-game countdown overlay
         self.countdown_overlay_active = True
@@ -96,7 +104,6 @@ class GameScreenState(BaseScreenState):
         """Reset the game state to initial values for a fresh start"""
         # Reset basic state variables first
         self.npcs = []
-        self.countdown_timer = 150.0
         self.countdown_overlay_active = True
         self.countdown_overlay_timer = 0.0
         self.current_countdown_phase = 0
@@ -144,8 +151,8 @@ class GameScreenState(BaseScreenState):
         self.player.set_tilemap(self.tilemap)
         self.tilemap.player = self.player
         
-        # Initialize gym manager
-        self.gym_manager = GymObjectManager()
+        # Initialize gym manager with difficulty scaler
+        self.gym_manager = GymObjectManager(self.difficulty_scaler)
         self.gym_manager.setup_from_tilemap(self.tilemap)
         
         # Set up collision system
@@ -156,7 +163,7 @@ class GameScreenState(BaseScreenState):
         self.npcs = []
         
         # Initialize progress bar
-        self.progress_bar = ProgressBar(x=50, y=50, width=200, height=20, max_progress=100)
+        self.progress_bar = ProgressBar(x=50, y=50, width=200, height=20, max_progress=100, difficulty_scaler=self.difficulty_scaler)
         
         # Initialize upgrade point manager
         self.upgrade_point_manager = UpgradePointManager(x=50, y=100, star_size=32)
@@ -167,17 +174,23 @@ class GameScreenState(BaseScreenState):
         # Initialize game clock
         self.game_clock = GameClock()
         
+        # Initialize difficulty scaler
+        self.difficulty_scaler = DifficultyScaler(self.game_clock)
+        
         # Connect game clock to tilemap for time-based effects
         self.tilemap.set_game_clock(self.game_clock)
         
-        # Initialize NPC wave manager
-        self.npc_wave_manager = NPCWaveManager(self.game_clock)
+        # Initialize NPC wave manager with difficulty scaler
+        self.npc_wave_manager = NPCWaveManager(self.game_clock, self.difficulty_scaler)
         
         # Initialize dialogue system
         self.dialogue_manager = DialogueManager()
         self.dialogue_ui = DialogueUI(1280, 720)
         self.dialogue_manager.set_dialogue_ui(self.dialogue_ui)
         self.dialogue_manager.set_player(self.player)
+        # Hook zoom on dialogue start/end
+        self.dialogue_manager.on_dialogue_started = self._on_dialogue_started
+        self.dialogue_manager.on_dialogue_ended = self._on_dialogue_ended
         
         # Initialize workout zone system
         self.workout_zone_manager = WorkoutZoneManager()
@@ -194,7 +207,8 @@ class GameScreenState(BaseScreenState):
             self.gym_manager,
             get_management_level_fn=(self.skill_inventory.get_management_level if self.skill_inventory else None),
             x_offset=30,
-            bar_height=300
+            bar_height=300,
+            difficulty_scaler=self.difficulty_scaler
         )
         
         # Initialize queue manager
@@ -211,6 +225,9 @@ class GameScreenState(BaseScreenState):
         
         # Initialize task tracker
         self.task_tracker = TaskTracker()
+        
+        # Set real start time
+        self.real_start_time = pygame.time.get_ticks() / 1000.0
         
         # Load time overlay image
         try:
@@ -280,6 +297,10 @@ class GameScreenState(BaseScreenState):
 
         # Update NPC happiness manager (always updates while game runs)
         if hasattr(self, 'npc_happiness') and self.npc_happiness:
+            try:
+                self.npc_happiness.set_npc_count_for_decay(len(self.npcs))
+            except Exception:
+                pass
             self.npc_happiness.update(delta_time)
         
         # Update queue manager (handles timeouts and queue management)
@@ -311,26 +332,57 @@ class GameScreenState(BaseScreenState):
         if self.progress_bar:
             self.progress_bar.update(delta_time)
         
-        # Update countdown timer
-        if self.countdown_timer > 0:
-            self.countdown_timer -= delta_time
-            if self.countdown_timer < 0:
-                self.countdown_timer = 0
-        
         # Update task tracker time
         if self.task_tracker:
-            self.task_tracker.track_stat("time_played", 150.0 - self.countdown_timer)
+            # Calculate time in seconds since game start
+            time_in_seconds = (self.game_clock.current_hour - 5) * 3600 + self.game_clock.current_minute * 60
+            self.task_tracker.track_stat("time_played", time_in_seconds)
         
         # Check if timer ran out - trigger evaluation screen
-        if self.countdown_timer <= 0:
+        if self.game_clock.current_hour >= 24:
             # Add a brief transition effect before switching
             return "Evaluation"
         
         # Check if happiness reached 0 - trigger fired screen
         if hasattr(self, 'npc_happiness') and self.npc_happiness and self.npc_happiness.current_happiness <= 0:
+            # Calculate final score before transitioning
+            self._calculate_final_score()
             return "Fired"
         
         return None
+    
+    def _calculate_final_score(self):
+        """Calculate the final score for the game over screen"""
+        # Calculate real time played in minutes
+        current_real_time = pygame.time.get_ticks() / 1000.0
+        time_played_seconds = current_real_time - self.real_start_time
+        time_played_minutes = time_played_seconds / 60.0
+        
+        # Count NPCs served (total NPCs that have been in the gym)
+        npcs_served = 0
+        if self.npc_wave_manager:
+            npcs_served = self.npc_wave_manager.total_npcs_spawned
+        
+        # Calculate score based on time played and NPCs served
+        # Base score: 100 points per minute + 50 points per NPC served
+        base_score = (time_played_minutes * 100) + (npcs_served * 50)
+        
+        # Bonus for management level
+        management_bonus = 0
+        if self.skill_inventory:
+            management_level = self.skill_inventory.get_management_level()
+            management_bonus = management_level * 100
+        
+        # Final score
+        final_score = base_score + management_bonus
+        
+        # Store the score data for the fired screen
+        self.final_score_data = {
+            'score': int(final_score),
+            'time_played': time_played_minutes,
+            'npcs_served': npcs_served,
+            'management_level': management_level if self.skill_inventory else 0
+        }
     
     def _handle_key_input(self, event):
         """Handle keyboard input"""
@@ -404,7 +456,14 @@ class GameScreenState(BaseScreenState):
         # Update player
         keys = pygame.key.get_pressed()
         self.player.handle_input(keys)
-        self.camera.follow(self.player)
+        if self._dialogue_zoom_active and self.dialogue_manager and self.dialogue_manager.is_dialogue_active():
+            npc = self.dialogue_manager.get_talking_npc()
+            if npc:
+                center_x = (self.player.x + npc.x) / 2
+                center_y = (self.player.y + npc.y) / 2
+                self.camera.center_on(center_x, center_y)
+        else:
+            self.camera.follow(self.player)
         self.player.update_stamina(delta_time)
         self.player.update_global_interruption_cooldown(delta_time)
         
@@ -423,9 +482,7 @@ class GameScreenState(BaseScreenState):
                 dialogue_ready = npc.update_chasing(delta_time)
                 if dialogue_ready:
                     # Start dialogue with this NPC
-                    import random
-                    dialogue_type = random.choice(["greeting", "equipment_tip", "form_advice"])
-                    self.dialogue_manager.start_dialogue(npc, dialogue_type)
+                    self.dialogue_manager.start_dialogue(npc, "interruptions")
             
             npc.update(delta_time)
             # Check if NPC is ready to be removed (has left the gym)
@@ -444,6 +501,19 @@ class GameScreenState(BaseScreenState):
         # Update dialogue system
         if self.dialogue_manager:
             self.dialogue_manager.update(delta_time)
+
+        # Smooth camera zoom toward target
+        if self._camera_zoom_target is not None and self.camera:
+            current_zoom = self.camera.zoom
+            target_zoom = self._camera_zoom_target
+            if abs(current_zoom - target_zoom) < 0.01:
+                self.camera.zoom = target_zoom
+                if not self._dialogue_zoom_active:
+                    self._camera_zoom_target = None
+            else:
+                # Use smooth interpolation instead of linear
+                zoom_diff = target_zoom - current_zoom
+                self.camera.zoom = current_zoom + zoom_diff * self._camera_zoom_speed * delta_time
         
         # Update cursor based on mouse position
         self._update_cursor()
@@ -452,7 +522,8 @@ class GameScreenState(BaseScreenState):
         current_time = pygame.time.get_ticks() / 1000.0  # Convert to seconds
         
         # Check if we should spawn NPCs
-        should_spawn, spawn_count = self.npc_wave_manager.should_spawn_npc(current_time, len(self.npcs))
+        current_happiness = self.npc_happiness.current_happiness if self.npc_happiness else None
+        should_spawn, spawn_count = self.npc_wave_manager.should_spawn_npc(current_time, len(self.npcs), current_happiness)
         if should_spawn:
             # Spawn multiple NPCs off-screen to the left
             offscreen_spawn_x = -80  # Off-screen to the left
@@ -520,6 +591,8 @@ class GameScreenState(BaseScreenState):
                         # Start charging for returning dumbbells
                         if self.progress_bar:
                             self.progress_bar.start_charging()
+                        if self.npc_happiness:
+                            self.npc_happiness.start_charging()
                 
                 # Try to return weight plates to rack
                 if hasattr(obj, 'return_plates_to_rack') and self.player.weight_plate_count > 0:
@@ -536,6 +609,8 @@ class GameScreenState(BaseScreenState):
                         # Start charging for returning weight plates
                         if self.progress_bar:
                             self.progress_bar.start_charging()
+                        if self.npc_happiness:
+                            self.npc_happiness.start_charging()
     
     def _handle_right_click(self, mouse_x, mouse_y):
         """Handle right mouse click interactions"""
@@ -566,6 +641,8 @@ class GameScreenState(BaseScreenState):
             # Start charging for checking in NPC
             if self.progress_bar:
                 self.progress_bar.start_charging()
+            if self.npc_happiness:
+                self.npc_happiness.start_charging()
         
         # Then check if clicking on floor dumbbells (within range)
         elif (self.tilemap.is_within_player_range(tile_x, tile_y) and 
@@ -578,6 +655,8 @@ class GameScreenState(BaseScreenState):
             print("DEBUG: Successfully picked up dumbbells!")
             if self.progress_bar:
                 self.progress_bar.start_charging()
+            if self.npc_happiness:
+                self.npc_happiness.start_charging()
         else:
             # Debug: Check why dumbbell pickup failed
             if self.tilemap.is_within_player_range(tile_x, tile_y):
@@ -604,6 +683,7 @@ class GameScreenState(BaseScreenState):
                         # Successfully picked up plates - trigger happiness bonus
                         if self.npc_happiness:
                             self.npc_happiness.on_weights_organized()
+                            self.npc_happiness.start_charging()
                         if self.progress_bar:
                             self.progress_bar.start_charging()
                 
@@ -627,11 +707,11 @@ class GameScreenState(BaseScreenState):
                         if self.task_tracker:
                             self.task_tracker.track_task("machines_cleaned")
                         # Trigger happiness bonus for cleaning
-                        if self.npc_happiness:
-                            self.npc_happiness.on_machine_cleaned()
-                        # Start charging for cleaning
-                        if self.progress_bar:
-                            self.progress_bar.start_charging()
+                    if self.npc_happiness:
+                        self.npc_happiness.on_machine_cleaned()
+                        self.npc_happiness.start_charging()
+                    if self.progress_bar:
+                        self.progress_bar.start_charging()
                 
                 # Check for turning off equipment
                 elif hasattr(obj, 'on_but_not_occupied') and obj.on_but_not_occupied:
@@ -644,7 +724,7 @@ class GameScreenState(BaseScreenState):
                     # Trigger happiness bonus for turning off treadmill
                     if self.npc_happiness:
                         self.npc_happiness.on_treadmill_turned_off()
-                    # Start charging for turning off equipment
+                        self.npc_happiness.start_charging()
                     if self.progress_bar:
                         self.progress_bar.start_charging()
     
@@ -657,6 +737,19 @@ class GameScreenState(BaseScreenState):
             if hasattr(npc, 'rect') and npc.rect.collidepoint(world_x, world_y):
                 return npc
         return None
+
+    def _on_dialogue_started(self, npc):
+        self._dialogue_zoom_active = True
+        if self.camera:
+            if self._camera_base_zoom is None:
+                self._camera_base_zoom = self.camera.zoom
+            self._camera_zoom_target = max(self.camera.zoom, 3.5)
+
+    def _on_dialogue_ended(self, npc):
+        self._dialogue_zoom_active = False
+        if self.camera:
+            base = self._camera_base_zoom if self._camera_base_zoom is not None else 3.0
+            self._camera_zoom_target = base
     
     
     def _update_cursor(self):
@@ -738,10 +831,6 @@ class GameScreenState(BaseScreenState):
         if self.progress_bar and not dialogue_active:
             self.progress_bar.draw(screen)
         
-        # Draw upgrade points (hidden during dialogue)
-        if self.upgrade_point_manager and not dialogue_active:
-            self.upgrade_point_manager.draw(screen)
-        
         # Draw tile highlighting (hidden during dialogue)
         if not dialogue_active:
             self.tilemap.draw_tile_highlight(screen, self.camera)
@@ -749,6 +838,10 @@ class GameScreenState(BaseScreenState):
         # Draw game clock (hidden during dialogue)
         if not dialogue_active:
             self._draw_game_clock(screen)
+        
+        # Draw upgrade points (hidden during dialogue) - after game clock so it appears on top
+        if self.upgrade_point_manager and not dialogue_active:
+            self.upgrade_point_manager.draw(screen)
         
         # Draw debug hitboxes (hidden during dialogue)
         if not dialogue_active:
@@ -778,6 +871,10 @@ class GameScreenState(BaseScreenState):
                 timer_center_x = screen.get_width() - 10 - (timer_width // 2)
             self.npc_happiness.draw(screen, timer_center_x, timer_height)
         
+        # Draw difficulty information (hidden during dialogue)
+        if self.difficulty_scaler and not dialogue_active:
+            self._draw_difficulty_info(screen)
+        
         # Draw stamina bar (hidden during dialogue)
         if self.player and not dialogue_active:
             self.player.draw_stamina_bar(screen, self.camera)
@@ -785,6 +882,47 @@ class GameScreenState(BaseScreenState):
         # Draw countdown overlay
         if self.countdown_overlay_active:
             self._draw_countdown_overlay(screen)
+    
+    def _draw_difficulty_info(self, screen):
+        """Draw difficulty information on screen"""
+        if not self.difficulty_scaler:
+            return
+        
+        # Get difficulty information
+        current_happiness = self.npc_happiness.current_happiness if self.npc_happiness else None
+        difficulty_info = self.npc_wave_manager.get_difficulty_info(current_happiness) if self.npc_wave_manager else None
+        
+        if not difficulty_info:
+            return
+        
+        # Load font
+        try:
+            font = pygame.font.Font("Font/Retro Gaming.ttf", 16)
+        except:
+            font = pygame.font.Font(None, 16)
+        
+        # Position in top-left corner, moved down
+        x = 10
+        y = 80
+        
+        # Draw difficulty level
+        level_text = f"Difficulty: {difficulty_info['level']}"
+        level_surface = font.render(level_text, True, (255, 255, 255))
+        screen.blit(level_surface, (x, y))
+        
+        # Draw description
+        if 'description' in difficulty_info:
+            desc_text = difficulty_info['description']
+            desc_surface = font.render(desc_text, True, (200, 200, 200))
+            screen.blit(desc_surface, (x, y + 20))
+        
+        # Draw maintenance stats if available
+        if self.gym_manager:
+            maintenance_stats = self.gym_manager.get_maintenance_stats()
+            if maintenance_stats['maintenance_required'] > 0:
+                maint_text = f"Maintenance: {maintenance_stats['maintenance_required']}/{maintenance_stats['total_objects']}"
+                maint_surface = font.render(maint_text, True, (255, 200, 0))
+                screen.blit(maint_surface, (x, y + 60))
     
     def _draw_countdown_overlay(self, screen):
         """Draw the pre-game countdown overlay"""
@@ -864,7 +1002,7 @@ class GameScreenState(BaseScreenState):
                 entity.draw_weight_plate_inventory(screen, self.camera)
     
     def _draw_game_clock(self, screen):
-        """Draw the game clock"""
+        """Draw the game clock and score"""
         # Draw time overlay image first if available
         if self.time_overlay_image:
             # Scale the overlay image to be larger
@@ -881,8 +1019,10 @@ class GameScreenState(BaseScreenState):
         
         try:
             clock_font = pygame.font.Font("Font/Retro Gaming.ttf", 14)
+            score_font = pygame.font.Font("Font/Retro Gaming.ttf", 12)
         except:
             clock_font = pygame.font.Font(None, 14)
+            score_font = pygame.font.Font(None, 12)
         
         # Position text within the scaled overlay
         if self.time_overlay_image:
@@ -894,25 +1034,15 @@ class GameScreenState(BaseScreenState):
             text_x = screen.get_width() - 20
             text_y = 20
         
-        clock_text = clock_font.render(self.game_clock.get_time_string(), True, (255, 255, 255))
-        clock_rect = clock_text.get_rect()
-        clock_rect.centerx = text_x
-        clock_rect.centery = text_y
-        screen.blit(clock_text, clock_rect)
+        # Draw score if task tracker is available
+        if self.task_tracker:
+            score = int(self.task_tracker.calculate_efficiency_score())
+            score_text = score_font.render(f"SCORE: {score}", True, (255, 255, 255))
+            score_rect = score_text.get_rect()
+            score_rect.centerx = text_x
+            score_rect.centery = text_y
+            screen.blit(score_text, score_rect)
         
-        # Draw NPC count underneath the clock within the overlay
-        npc_count_text = clock_font.render(f"NPCS {len(self.npcs)}/{self.npc_wave_manager.max_total_npcs}", True, (255, 255, 255))
-        npc_count_rect = npc_count_text.get_rect()
-        npc_count_rect.centerx = text_x
-        npc_count_rect.centery = text_y + 30  # 30 pixels below the clock text
-        screen.blit(npc_count_text, npc_count_rect)
-        
-        # Draw countdown timer underneath the NPC count
-        countdown_text = clock_font.render(f"TIME {self.countdown_timer:.1f}s", True, (255, 255, 255))
-        countdown_rect = countdown_text.get_rect()
-        countdown_rect.centerx = text_x
-        countdown_rect.centery = text_y + 60  # 60 pixels below the clock text (30 below NPC count)
-        screen.blit(countdown_text, countdown_rect)
     
     def _draw_debug_hitboxes(self, screen):
         """Draw debug hitboxes for entities and gym objects"""

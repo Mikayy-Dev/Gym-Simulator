@@ -10,6 +10,8 @@ class DialogueManager:
         self.player = None
         self.talking_npc = None
         self.dialogue_trees = {}
+        self.on_dialogue_started = None
+        self.on_dialogue_ended = None
         self._setup_dialogue_trees()
     
     def set_player(self, player):
@@ -23,65 +25,60 @@ class DialogueManager:
     def _setup_dialogue_trees(self):
         """Setup dialogue trees for different NPCs"""
         self.dialogue_trees = {
-            "greeting": {
-                "text": "Yo bro! What's good? How's it going?",
-                "responses": [
-                    {"text": "Pretty good, thanks!", "next": "positive_response"},
-                    {"text": "Eh, could be better...", "next": "encouraging_response"},
-                    {"text": "Just getting started here!", "next": "motivational_response"}
-                ]
-            },
-            "positive_response": {
-                "text": "Hell yeah bro! That's what I like to hear! Oh I used to bench a lot in high school - those were the days!",
-                "responses": [
-                    {"text": "Nice! What'd you bench?", "next": "end"},
-                    {"text": "Respect!", "next": "end"}
-                ]
-            },
-            "encouraging_response": {
-                "text": "Come on bro, we all have those days! Oh yeah bro you gotta pump the muscle for it to grow! No pain, no gain!",
-                "responses": [
-                    {"text": "You're right, let's go!", "next": "end"},
-                    {"text": "Thanks for the motivation!", "next": "end"}
-                ]
-            },
-            "motivational_response": {
-                "text": "That's the attitude! Back in my day, we didn't have all these fancy machines - just iron and determination!",
-                "responses": [
-                    {"text": "Respect the old school!", "next": "end"},
-                    {"text": "I'll keep grinding!", "next": "end"}
-                ]
-            },
-            "equipment_tip": {
-                "text": "Yo bro, you ever hit the squat rack? That's where the real gains are made! I used to squat 315 back in the day!",
-                "responses": [
-                    {"text": "Damn, that's impressive!", "next": "end"},
-                    {"text": "I'll give it a shot!", "next": "end"},
-                    {"text": "Maybe when I'm stronger...", "next": "end"}
-                ]
-            },
-            "form_advice": {
-                "text": "Bro, when you do start lifting, keep that back tight! You don't want to end up like me with this bad back from sloppy lifting!",
-                "responses": [
-                    {"text": "Thanks for looking out!", "next": "end"},
-                    {"text": "I'll remember that!", "next": "end"},
-                    {"text": "Appreciate the tip!", "next": "end"}
-                ]
-            }
+            "interruptions": [
+                {"text": "Yo, desk bro! Can you check my membership? My gains are time-sensitive."},
+                {"text": "Hey, I think my protein shake spilled. Is that on the gym’s hazard protocol?"},
+                {"text": "Bro, can you tell me where the squat racks are? My type II fibers are waiting."},
+                {"text": "I need a towel. My delts just had a sweat-induced hypertrophy session."},
+                {"text": "Is the leg press free? I’m trying to optimize sarcomere lengthening."},
+                {"text": "Hey, can you show me how to adjust the dumbbells? I don’t want fascicle microtrauma."},
+                {"text": "Can you remind me where the locker room is? My glycogen stores are low."},
+                {"text": "Bro, I think the treadmill’s speed is off. My VO2 max calculations are suffering."},
+                {"text": "Do you have a foam roller? My fascia is crying in scientific distress."},
+                {"text": "Can you spot me real quick? My nervous system needs assistance recruiting fibers."},
+                {"text": "Hey, what’s the gym Wi-Fi password? I need to track my macros in real time."},
+                {"text": "Bro, do you sell pre-workout? I need my ATP production optimized."},
+                {"text": "Is there a clean water fountain? Hydration kinetics are critical."},
+                {"text": "Can you reset that machine? My sarcoplasmic reticulum is misaligned."},
+                {"text": "Yo, can you check my membership expiration? My hypertrophy window is closing."},
+                {"text": "Do you have sticky chalk? My grip is limiting force output."},
+                {"text": "Hey, I need a new resistance band. My elastic potential energy is insufficient."},
+                {"text": "Bro, can you tell me where the stretching area is? I need fascicle elongation."},
+                {"text": "Is it cool if I drop the weights here? I’m working on eccentric overload."},
+                {"text": "Can you spot me on the bench? My pectoral myofibrils need supervision."},
+                {"text": "Hey, can I swap this machine? My muscle recruitment pattern is suboptimal."},
+                {"text": "Bro, can you tell me where the kettlebells are? My posterior chain is calling."},
+                {"text": "Do you have a ladder drill setup? I need neuromuscular coordination practice."},
+                {"text": "Hey, can you clean this machine? My hygiene-to-hypertrophy ratio is off."},
+                {"text": "Yo, can you check if the dumbbells are in order? My bilateral symmetry is at stake."},
+                {"text": "Can you bring me a mat? My isometric contractions require a stable surface."},
+                {"text": "Bro, I need help calculating my 1RM. My concentric force predictions are off."},
+                {"text": "Hey, can you tell me where the pull-up bar is? My scapular retractors are twitching."},
+                {"text": "Do you have ankle weights? My lower limb hypertrophy depends on them."},
+                {"text": "Yo, can you help me with my warm-up? My tendon elasticity is suboptimal."},
+                {"text": "Bro, can you make sure this machine is calibrated? My muscle spindle feedback depends on it."}
+            ]
         }
     
-    def start_dialogue(self, npc, dialogue_type="greeting"):
+    def start_dialogue(self, npc, dialogue_type="interruptions"):
         """Start a dialogue with an NPC"""
         if self.active_dialogue is not None:
             return False  # Already in dialogue
         
         if dialogue_type not in self.dialogue_trees:
-            dialogue_type = "greeting"  # Fallback
+            dialogue_type = "interruptions"  # Fallback
         
+        selected = self.dialogue_trees[dialogue_type]
+        if isinstance(selected, list):
+            chosen = random.choice(selected)
+            node = {"text": chosen["text"], "responses": [{"text": "Okay.", "next": "end"}]}
+        else:
+            node = selected
+
         self.active_dialogue = {
             "npc": npc,
             "current_node": dialogue_type,
-            "dialogue_tree": self.dialogue_trees[dialogue_type]
+            "dialogue_tree": node
         }
         
         self.talking_npc = npc
@@ -94,6 +91,11 @@ class DialogueManager:
             # Set global interruption cooldown to prevent other NPCs from interrupting
             self.player.set_global_interruption_cooldown(45)
         
+        if callable(self.on_dialogue_started):
+            try:
+                self.on_dialogue_started(npc)
+            except Exception:
+                pass
         return True
     
     def end_dialogue(self):
@@ -112,7 +114,13 @@ class DialogueManager:
             self.talking_npc.dialogue_cooldown = self.talking_npc.dialogue_cooldown_duration
         
         self.active_dialogue = None
+        ended_npc = self.talking_npc
         self.talking_npc = None
+        if callable(self.on_dialogue_ended):
+            try:
+                self.on_dialogue_ended(ended_npc)
+            except Exception:
+                pass
     
     def get_current_dialogue_text(self):
         """Get the current dialogue text"""

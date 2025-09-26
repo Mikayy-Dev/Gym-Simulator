@@ -53,3 +53,9 @@ class Camera:
         screen_width = world_rect.width * self.zoom
         screen_height = world_rect.height * self.zoom
         return pygame.Rect(screen_x, screen_y, screen_width, screen_height)
+
+    def center_on(self, world_x, world_y):
+        half_width_world = self.width / (2 * self.zoom)
+        half_height_world = self.height / (2 * self.zoom)
+        self.x = world_x - half_width_world
+        self.y = world_y - half_height_world

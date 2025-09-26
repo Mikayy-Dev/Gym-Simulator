@@ -16,6 +16,7 @@ class FiredScreenState(BaseScreenState):
         self.fired_font = None
         self.subtitle_font = None
         self.button_font = None
+        self.score_font = None
         self.fade_alpha = 0
         self.fade_duration = 2.0
         self.fade_timer = 0.0
@@ -23,6 +24,9 @@ class FiredScreenState(BaseScreenState):
         self.button_rects = {}
         self.hovered_button = None
         self.button_icon = None
+        self.final_score = 0
+        self.time_played = 0
+        self.npcs_served = 0
         
     def enter(self):
         """Called when entering this state"""
@@ -33,10 +37,12 @@ class FiredScreenState(BaseScreenState):
             self.fired_font = pygame.font.Font("Font/Retro Gaming.ttf", 72)
             self.subtitle_font = pygame.font.Font("Font/Retro Gaming.ttf", 36)
             self.button_font = pygame.font.Font("Font/Retro Gaming.ttf", 24)
+            self.score_font = pygame.font.Font("Font/Retro Gaming.ttf", 28)
         except:
             self.fired_font = pygame.font.Font(None, 72)
             self.subtitle_font = pygame.font.Font(None, 36)
             self.button_font = pygame.font.Font(None, 24)
+            self.score_font = pygame.font.Font(None, 28)
         
         # Load button icon
         try:
@@ -55,6 +61,12 @@ class FiredScreenState(BaseScreenState):
                 self.audio_system.play_sound("ronnie_coleman")
             except:
                 pass
+    
+    def set_final_score(self, score, time_played, npcs_served):
+        """Set the final score information"""
+        self.final_score = score
+        self.time_played = time_played
+        self.npcs_served = npcs_served
     
     def exit(self):
         """Called when exiting this state"""
@@ -135,6 +147,9 @@ class FiredScreenState(BaseScreenState):
         subtitle_rect.centery = screen_height // 2 - 20
         screen.blit(subtitle_text, subtitle_rect)
         
+        # Draw final score
+        self._draw_final_score(screen, screen_width, screen_height)
+        
         # Draw buttons if fade in is complete
         if self.show_buttons:
             self._draw_buttons(screen, screen_width, screen_height)
@@ -146,7 +161,7 @@ class FiredScreenState(BaseScreenState):
         button_spacing = 20
         total_width = (button_width * 2) + button_spacing
         start_x = (screen_width - total_width) // 2
-        button_y = screen_height // 2 + 100
+        button_y = screen_height // 2 + 200
         
         # Reset button
         reset_rect = pygame.Rect(start_x, button_y, button_width, button_height)
@@ -193,6 +208,32 @@ class FiredScreenState(BaseScreenState):
         quit_text_rect = quit_text.get_rect()
         quit_text_rect.center = quit_rect.center
         screen.blit(quit_text, quit_text_rect)
+    
+    def _draw_final_score(self, screen, screen_width, screen_height):
+        """Draw the final score information"""
+        # Calculate position below subtitle
+        start_y = screen_height // 2 + 20
+        
+        # Draw final score
+        score_text = self.score_font.render(f"Final Score: {self.final_score:,}", True, (255, 255, 0))
+        score_rect = score_text.get_rect()
+        score_rect.centerx = screen_width // 2
+        score_rect.centery = start_y
+        screen.blit(score_text, score_rect)
+        
+        # Draw time played
+        time_text = self.subtitle_font.render(f"Time Played: {self.time_played:.1f} minutes", True, (180, 180, 180))
+        time_rect = time_text.get_rect()
+        time_rect.centerx = screen_width // 2
+        time_rect.centery = start_y + 40
+        screen.blit(time_text, time_rect)
+        
+        # Draw NPCs served
+        npcs_text = self.subtitle_font.render(f"NPCs Served: {self.npcs_served}", True, (180, 180, 180))
+        npcs_rect = npcs_text.get_rect()
+        npcs_rect.centerx = screen_width // 2
+        npcs_rect.centery = start_y + 80
+        screen.blit(npcs_text, npcs_rect)
     
     def get_cursor_type(self):
         """Get the current cursor type for the game engine"""

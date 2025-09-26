@@ -8,12 +8,13 @@ from gym_objects.front_desk import FrontDesk
 from gym_objects.trashcan import Trashcan
 
 class GymObjectManager:
-    def __init__(self):
+    def __init__(self, difficulty_scaler=None):
         self.gym_objects = {}  # {(x, y): GymObject}
         self.object_types = {}  # {(x, y): "bench", "treadmill", etc.}
         self.show_hitboxes = False  # Flag to toggle collision hitbox visibility
         self.show_interaction_hitboxes = False  # Flag to toggle interaction hitbox visibility
         self._depth_cache_dirty = True
+        self.difficulty_scaler = difficulty_scaler
         
     def add_gym_object(self, x, y, object_type, **kwargs):
         """Add a gym object at the specified position"""
@@ -35,6 +36,11 @@ class GymObjectManager:
         self.gym_objects[(x, y)] = obj
         self.object_types[(x, y)] = object_type
         self._depth_cache_dirty = True
+        
+        # Set difficulty scaler for the object
+        if hasattr(obj, 'set_difficulty_scaler') and self.difficulty_scaler:
+            obj.set_difficulty_scaler(self.difficulty_scaler)
+        
         return obj
     
     def get_gym_object(self, x, y):
@@ -102,6 +108,13 @@ class GymObjectManager:
         # Fallback: try exact world coordinate match
         return self.get_gym_object(world_x, world_y)
     
+    def set_difficulty_scaler(self, difficulty_scaler):
+        """Set difficulty scaler for all existing and future objects"""
+        self.difficulty_scaler = difficulty_scaler
+        for obj in self.gym_objects.values():
+            if hasattr(obj, 'set_difficulty_scaler'):
+                obj.set_difficulty_scaler(difficulty_scaler)
+    
     def setup_from_tilemap(self, tilemap):
         """Set up gym objects based on tilemap data"""
         # Clear existing objects
@@ -154,6 +167,39 @@ class GymObjectManager:
                 tiles_needing_interaction.append((tile_x, tile_y))
         
         return tiles_needing_interaction
+    
+    def get_objects_needing_maintenance(self):
+        """Get all objects that need maintenance"""
+        maintenance_objects = []
+        for pos, obj in self.gym_objects.items():
+            if hasattr(obj, 'maintenance_required') and obj.maintenance_required:
+                maintenance_objects.append((pos, obj))
+        return maintenance_objects
+    
+    def perform_maintenance_on_object(self, obj):
+        """Perform maintenance on a specific object"""
+        if hasattr(obj, 'perform_maintenance'):
+            return obj.perform_maintenance()
+        return False
+    
+    def get_maintenance_stats(self):
+        """Get maintenance statistics"""
+        total_objects = len(self.gym_objects)
+        maintenance_required = 0
+        broken_objects = 0
+        
+        for obj in self.gym_objects.values():
+            if hasattr(obj, 'maintenance_required') and obj.maintenance_required:
+                maintenance_required += 1
+            if hasattr(obj, 'states') and 'broken' in obj.states:
+                broken_objects += 1
+        
+        return {
+            'total_objects': total_objects,
+            'maintenance_required': maintenance_required,
+            'broken_objects': broken_objects,
+            'maintenance_percentage': (maintenance_required / total_objects * 100) if total_objects > 0 else 0
+        }
     
     def get_object_info(self):
         """Get information about all gym objects for debugging"""

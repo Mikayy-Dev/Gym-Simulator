@@ -49,7 +49,7 @@ class AssetManager:
     def _load_sound_effects(self):
         """Load sound effects"""
         sound_files = {
-            "spray_bottle": "Audio/Spray Bottle - Sound Effect (HD).mp3",
+            "spray_bottle": "Audio/spray.mp3",
             "machine_shutdown": "Audio/machine shutdown.mp3",
             "title_music": "Audio/title_screen.mp3",
             "dumbbell": "Audio/dumbbell.mp3",
