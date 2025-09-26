@@ -38,3 +38,11 @@ Gym Sim is a top-down simulation game where you manage a gym, interact with equi
 * Weird wobbly screen when dialogue ends 
 * Squat sometimes doesn't update frame when returning weights causing the rack to be unusable for the remainder of the game
 * NPCs will persist in the dumbbell animation and walk around without changing back to the normal sprite
+
+## Credit
+* Artwork by myself (main menu portrait and all gym objects) and my girlfriend (main menu logo, manager portrait, skill points menu UI) 
+* Walls, floor, and npc/player sprite is from Stardew Valley (with slight color changes). Npc shares the player sprite as a placeholder for now
+* Various gym animations are also currently still place holders templates.
+* Main menu audio is a MIDI version of the Three Days Grace song: Animal I Have Become
+* Opening cutscene https://www.youtube.com/watch?v=8BNP126zgPU
+* Other minor sound effects found on youtube. 
