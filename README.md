@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Gym Simulator v1 release
 
 ## Known Issues (Hard to replicate so I couldn't figure out how to fix)
@@ -7,6 +8,9 @@ the rack to be unusable for the remainder of the game
 NPCs will persist in the dumbbell animation and walk around without changing back to the normal sprite
 
 
+=======
+## Version 0.5
+>>>>>>> 3833fe09a4a227453f6443722816dea9b260015d
 A gym management simulation game where you run a fitness center and keep your customers happy!
 
 ## Overview
