@@ -3,6 +3,10 @@
 
 Gym Sim is a top-down simulation game where you manage a gym, interact with equipment, serve customers (NPCs), and maintain a clean and organized environment. Your goal is to keep your gym members happy by cleaning equipment, organizing weights, and providing good service.
 
+## How to download
+* Go into the 'dist' folder and double click on the main.exe program.
+* DO NOT remove the main.exe program from this folder everything needs to inside the dist folder to operate properly
+
 ## Controls
 
 * WASD/Arrow Keys: Move around the gym
