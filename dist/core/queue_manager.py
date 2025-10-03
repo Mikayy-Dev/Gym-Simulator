@@ -12,7 +12,7 @@ class QueueManager:
         # Queue configuration
         self.config = queue_config or {
             'max_queue_length': 5,
-            'timeout_duration': 15.0,  # seconds
+            'timeout_duration': 30.0,  # seconds
             'queue_spacing': 1,  # tiles between NPCs
             'queue_direction': 'left',  # queue extends left from front desk
             'queue_row': 11  # which row the queue forms in

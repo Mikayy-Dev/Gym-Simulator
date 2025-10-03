@@ -100,6 +100,8 @@ class AudioManager:
                 # Special handling for scanner sound - make it much quieter
                 if name == "scanner":
                     sound.set_volume(self.sfx_volume * 0.1)  # 10% of normal SFX volume
+                elif name == "door_bell":
+                    sound.set_volume(self.sfx_volume * 0.1)  # 30% of normal SFX volume
                 else:
                     sound.set_volume(self.sfx_volume)
                 sound.play()

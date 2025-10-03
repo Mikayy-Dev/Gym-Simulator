@@ -23,6 +23,7 @@ class AudioSystem:
         self.audio_manager.load_sound_effect("squat_rerack", "Audio/squat_rerack.wav")
         self.audio_manager.load_sound_effect("scanner", "Audio/scanner.mp3")
         self.audio_manager.load_sound_effect("countdown", "Audio/countdown.mp3")
+        self.audio_manager.load_sound_effect("door_bell", "Audio/Shop Door Bell.mp3")
         
         # Set initial volume
         self.audio_manager.set_sfx_volume(0.3)

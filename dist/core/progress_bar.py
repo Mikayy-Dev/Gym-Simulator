@@ -1,7 +1,7 @@
 import pygame
 
 class ProgressBar:
-    def __init__(self, x=50, y=50, width=200, height=20, max_progress=100, difficulty_scaler=None):
+    def __init__(self, x=50, y=50, width=200, height=20, max_progress=100, difficulty_scaler=None, npc_happiness=None):
         self.x = x
         self.y = y
         self.width = width
@@ -14,6 +14,7 @@ class ProgressBar:
         self.last_activity_time = 0
         self.recent_event_label_ms = 400
         self.difficulty_scaler = difficulty_scaler
+        self.npc_happiness = npc_happiness
         
         # Colors
         self.bg_color = (50, 50, 50)
@@ -21,7 +22,7 @@ class ProgressBar:
         self.charge_color = (0, 255, 255)  # Cyan when charging
         self.border_color = (255, 255, 255)
         
-    def start_charging(self, amount: float = 5.0):
+    def start_charging(self, amount: float = 15.0, action: str = "Task completed"):
         """Apply an immediate progress increment for an event."""
         self.is_charging = True
         self.last_activity_time = pygame.time.get_ticks()
@@ -35,6 +36,12 @@ class ProgressBar:
             scaled_amount *= difficulty_multiplier
         
         self.current_progress += scaled_amount
+        
+        # Add chat log message for XP earned with action description
+        if self.npc_happiness:
+            xp_message = f"{action}: +{int(scaled_amount)} XP"
+            self.npc_happiness._add_chat_log_entry(xp_message)
+        
         if self.current_progress >= self.max_progress:
             self.level_up()
     
@@ -142,18 +149,7 @@ class ProgressBar:
     
     def _get_skill_points_for_level(self, level):
         """Get the number of skill points to award for reaching a specific level"""
-        if level == 2:
-            return 1
-        elif level == 4:
-            return 1
-        elif level == 6:
-            return 2
-        elif level == 8:
-            return 2
-        elif level == 10:
-            return 3
-        else:
-            return 0  # No points for other levels
+        return 1  # 1 skill point per level
     
     def set_upgrade_point_manager(self, upgrade_point_manager):
         """Set the upgrade point manager to award points to"""

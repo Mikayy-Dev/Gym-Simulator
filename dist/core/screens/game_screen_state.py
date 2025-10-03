@@ -162,14 +162,8 @@ class GameScreenState(BaseScreenState):
         # Initialize NPCs
         self.npcs = []
         
-        # Initialize progress bar
-        self.progress_bar = ProgressBar(x=50, y=50, width=200, height=20, max_progress=100, difficulty_scaler=self.difficulty_scaler)
-        
         # Initialize upgrade point manager
         self.upgrade_point_manager = UpgradePointManager(x=50, y=100, star_size=32)
-        
-        # Connect progress bar to upgrade point manager
-        self.progress_bar.set_upgrade_point_manager(self.upgrade_point_manager)
         
         # Initialize game clock
         self.game_clock = GameClock()
@@ -210,6 +204,12 @@ class GameScreenState(BaseScreenState):
             bar_height=300,
             difficulty_scaler=self.difficulty_scaler
         )
+        
+        # Initialize progress bar (after NPC happiness manager)
+        self.progress_bar = ProgressBar(x=50, y=50, width=200, height=20, max_progress=100, difficulty_scaler=self.difficulty_scaler, npc_happiness=self.npc_happiness)
+        
+        # Connect progress bar to upgrade point manager
+        self.progress_bar.set_upgrade_point_manager(self.upgrade_point_manager)
         
         # Initialize queue manager
         front_desks = self.gym_manager.get_gym_objects_by_type("front_desk")
@@ -560,6 +560,10 @@ class GameScreenState(BaseScreenState):
             # Update wave manager
             self.npc_wave_manager.spawn_npcs(current_time, spawn_count)
             
+            # Play door bell sound when NPCs enter the gym
+            if self.audio_system:
+                self.audio_system.play_sound("door_bell")
+            
             # Give all NPCs reference to updated list for queue management
             for existing_npc in self.npcs:
                 existing_npc.all_npcs = self.npcs
@@ -590,7 +594,7 @@ class GameScreenState(BaseScreenState):
                         
                         # Start charging for returning dumbbells
                         if self.progress_bar:
-                            self.progress_bar.start_charging()
+                            self.progress_bar.start_charging(action="Returned dumbbells")
                         if self.npc_happiness:
                             self.npc_happiness.start_charging()
                 
@@ -608,7 +612,7 @@ class GameScreenState(BaseScreenState):
                         
                         # Start charging for returning weight plates
                         if self.progress_bar:
-                            self.progress_bar.start_charging()
+                            self.progress_bar.start_charging(action="Returned weight plates")
                         if self.npc_happiness:
                             self.npc_happiness.start_charging()
     
@@ -640,7 +644,7 @@ class GameScreenState(BaseScreenState):
             
             # Start charging for checking in NPC
             if self.progress_bar:
-                self.progress_bar.start_charging()
+                self.progress_bar.start_charging(action="Checked in customer")
             if self.npc_happiness:
                 self.npc_happiness.start_charging()
         
@@ -653,10 +657,6 @@ class GameScreenState(BaseScreenState):
             
             # Successfully picked up dumbbells
             print("DEBUG: Successfully picked up dumbbells!")
-            if self.progress_bar:
-                self.progress_bar.start_charging()
-            if self.npc_happiness:
-                self.npc_happiness.start_charging()
         else:
             # Debug: Check why dumbbell pickup failed
             if self.tilemap.is_within_player_range(tile_x, tile_y):
@@ -680,12 +680,7 @@ class GameScreenState(BaseScreenState):
                         if self.task_tracker:
                             self.task_tracker.track_task("floor_plates_picked_up")
                         
-                        # Successfully picked up plates - trigger happiness bonus
-                        if self.npc_happiness:
-                            self.npc_happiness.on_weights_organized()
-                            self.npc_happiness.start_charging()
-                        if self.progress_bar:
-                            self.progress_bar.start_charging()
+                        # Successfully picked up plates
                 
                 # Check for other gym object interactions
                 elif hasattr(obj, 'interact'):
@@ -695,7 +690,7 @@ class GameScreenState(BaseScreenState):
                         self.task_tracker.track_task("gym_objects_interacted")
                     # Start charging for gym object interaction
                     if self.progress_bar:
-                        self.progress_bar.start_charging()
+                        self.progress_bar.start_charging(action="Used gym equipment")
                 
                 # Check for cleaning interactions
                 elif obj.has_state("dirty"):
@@ -711,7 +706,7 @@ class GameScreenState(BaseScreenState):
                         self.npc_happiness.on_machine_cleaned()
                         self.npc_happiness.start_charging()
                     if self.progress_bar:
-                        self.progress_bar.start_charging()
+                        self.progress_bar.start_charging(action="Cleaned equipment")
                 
                 # Check for turning off equipment
                 elif hasattr(obj, 'on_but_not_occupied') and obj.on_but_not_occupied:
@@ -726,7 +721,7 @@ class GameScreenState(BaseScreenState):
                         self.npc_happiness.on_treadmill_turned_off()
                         self.npc_happiness.start_charging()
                     if self.progress_bar:
-                        self.progress_bar.start_charging()
+                        self.progress_bar.start_charging(action="Turned off equipment")
     
     def _get_npc_at_mouse_position(self, mouse_x, mouse_y):
         """Get NPC at mouse position"""

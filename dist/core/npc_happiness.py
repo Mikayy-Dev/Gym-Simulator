@@ -263,8 +263,10 @@ class NPCHappinessManager:
         # Draw coach_robbie graphic based on happiness level
         self._draw_coach_graphic(screen, bar_x, bar_y, scaled_width, scaled_height)
         
-        # Draw chat log below happiness bar
-        self._draw_chat_log(screen, bar_x, bar_y + scaled_height + 80, scaled_width)
+        # Draw chat log above stamina bar (bottom left of screen)
+        stamina_bar_y = screen.get_height() - 60
+        chat_log_y = stamina_bar_y - 120  # Position above stamina bar with some spacing
+        self._draw_chat_log(screen, 20, chat_log_y, 400)  # Use left side positioning with wider width
 
     def _draw_coach_graphic(self, screen, bar_x, bar_y, bar_width, bar_height):
         """Draw coach_robbie graphic based on happiness level"""
