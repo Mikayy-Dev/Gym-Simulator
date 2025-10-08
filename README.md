@@ -46,11 +46,8 @@ Gym Sim is a top-down simulation game where you manage a gym, interact with equi
 * Main menu audio is a MIDI version of the Three Days Grace song: Animal I Have Become
 * Opening cutscene https://www.youtube.com/watch?v=8BNP126zgPU
 * Other minor sound effects found on youtube. 
-<<<<<<< HEAD
 
 ## Repo
 * I've uploaded all this code to git so that post class I can hopefully expand this idea I have and further polish the graphics, gameplay, etc. 
 * https://github.com/Mikayy-Dev/Gym-Simulator
 
-=======
->>>>>>> ad373a8e1f832ac18d944cf984948c162b3e25f3
